@@ -23,11 +23,36 @@ export interface VisualizationMetadata {
   primaryVariables: string[];
   difficulty: 'Foundational' | 'Intermediate' | 'Advanced';
   citation: string;
-  previewType: 'dna-structure' | 'dna-replication' | 'osmosis' | 'action-potential' | 'protein-synthesis' | 'enzyme-kinetics' | 'mitosis' | 'photosynthesis' | 'cellular-respiration';
+  previewType: 'cell-structure' | 'dna-structure' | 'dna-replication' | 'osmosis' | 'action-potential' | 'protein-synthesis' | 'enzyme-kinetics' | 'mitosis' | 'photosynthesis' | 'cellular-respiration';
   featuredOrder: number;
 }
 
 export const VISUALIZATION_REGISTRY: VisualizationMetadata[] = [
+  {
+    id: 'cell-structure',
+    title: 'Cell Structure: Eukaryotic Architecture',
+    shortTitle: 'Cell Structure',
+    category: 'Cell Biology',
+    categoryCode: 'CEL-01',
+    eyebrow: 'Cell Biology / Eukaryotic Organization',
+    tagline: 'Internal spatial organization of animal and plant cells: organelles, endomembrane systems, and energy converters.',
+    description: 'Explore the architectural organization of eukaryotic animal and plant cells. Inspect organelles in their biologically plausible spatial locations, switch between animal and plant layouts, trace endomembrane trafficking pathways, and zoom into individual organelle ultrastructures.',
+    scientificConcept: 'Eukaryotic compartmentalization, endomembrane trafficking, and animal vs plant structural divergence.',
+    keyPrinciples: [
+      'Membrane compartmentalization separates specialized biochemical environments (e.g. acidic lysosomes, respiratory cristae)',
+      'Plant cells are distinguished by rigid cellulose cell walls, large central turgor vacuoles, and photosynthetic chloroplasts',
+      'Endomembrane trafficking coordinates protein flow: Nucleus → Rough ER → Golgi Apparatus → Secretory Vesicles / Lysosomes',
+      'Mitochondria (aerobic respiration) and Chloroplasts (photosynthesis) originated via primary endosymbiosis'
+    ],
+    status: 'available',
+    route: '/visualizations/cell-structure',
+    rendererType: 'hybrid',
+    primaryVariables: ['Cell Type (Animal / Plant)', 'Organelle Focus Zoom', 'Endomembrane Pathways', 'Structural Boundaries'],
+    difficulty: 'Foundational',
+    citation: 'Alberts, B. et al. Molecular Biology of the Cell (6th ed.), Ch. 12 & 14.',
+    previewType: 'cell-structure',
+    featuredOrder: 1
+  },
   {
     id: 'dna-structure',
     title: 'DNA Structure: Double Helix & Base Pairing',

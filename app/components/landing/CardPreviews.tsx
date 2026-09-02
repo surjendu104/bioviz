@@ -2,6 +2,132 @@
 
 import React, { useEffect, useRef } from "react";
 
+export function CellStructurePreview() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let animId: number;
+
+    const render = () => {
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      // Grid
+      ctx.strokeStyle = "rgba(226, 232, 240, 0.4)";
+      ctx.lineWidth = 0.5;
+      for (let x = 0; x < w; x += 20) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+      }
+
+      const cx = w * 0.5;
+      const cy = h * 0.5;
+
+      // Outer Plasma Membrane (Organic cell boundary)
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, w * 0.42, h * 0.38, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(241, 245, 249, 0.6)";
+      ctx.fill();
+      ctx.strokeStyle = "#475569";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Nucleus
+      const nucX = cx - 35;
+      const nucY = cy;
+      ctx.beginPath();
+      ctx.arc(nucX, nucY, 24, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(59, 130, 246, 0.18)";
+      ctx.fill();
+      ctx.strokeStyle = "#2563eb";
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+
+      // Nucleolus
+      ctx.beginPath();
+      ctx.arc(nucX - 4, nucY - 2, 7, 0, Math.PI * 2);
+      ctx.fillStyle = "#1d4ed8";
+      ctx.fill();
+
+      // Rough ER (ribbon folds wrapping nucleus)
+      ctx.beginPath();
+      ctx.strokeStyle = "#3b82f6";
+      ctx.lineWidth = 1.8;
+      ctx.arc(nucX, nucY, 32, -Math.PI * 0.4, Math.PI * 0.4);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(nucX, nucY, 38, -Math.PI * 0.35, Math.PI * 0.35);
+      ctx.stroke();
+
+      // Mitochondria (2 sausage-shaped organelles with cristae)
+      const drawMito = (mx: number, my: number, angle: number) => {
+        ctx.save();
+        ctx.translate(mx, my);
+        ctx.rotate(angle);
+        ctx.beginPath();
+        ctx.roundRect(-14, -7, 28, 14, 7);
+        ctx.fillStyle = "#ea580c";
+        ctx.fill();
+        ctx.strokeStyle = "#9a3412";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        // Inner cristae lines
+        ctx.beginPath();
+        ctx.strokeStyle = "#fed7aa";
+        ctx.lineWidth = 1;
+        ctx.moveTo(-8, -4); ctx.lineTo(-8, 4);
+        ctx.moveTo(-2, -4); ctx.lineTo(-2, 4);
+        ctx.moveTo(4, -4); ctx.lineTo(4, 4);
+        ctx.stroke();
+        ctx.restore();
+      };
+
+      drawMito(cx + 45, cy - 18, 0.3);
+      drawMito(cx + 25, cy + 24, -0.4);
+
+      // Golgi Apparatus (curved stacked cisternae)
+      ctx.save();
+      ctx.translate(cx + 70, cy + 5);
+      ctx.strokeStyle = "#9333ea";
+      ctx.lineWidth = 1.8;
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.arc(-i * 4, 0, 16 + i * 2, -Math.PI * 0.3, Math.PI * 0.3);
+        ctx.stroke();
+      }
+      // Budding vesicles
+      ctx.beginPath();
+      ctx.arc(14, -8, 2.5, 0, Math.PI * 2);
+      ctx.arc(16, 6, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = "#9333ea";
+      ctx.fill();
+      ctx.restore();
+
+      // Lysosomes (small emerald circles)
+      ctx.beginPath();
+      ctx.arc(cx - 65, cy - 22, 4, 0, Math.PI * 2);
+      ctx.arc(cx - 55, cy + 26, 4.5, 0, Math.PI * 2);
+      ctx.fillStyle = "#059669";
+      ctx.fill();
+
+      animId = requestAnimationFrame(render);
+    };
+
+    render();
+    return () => cancelAnimationFrame(animId);
+  }, []);
+
+  return <canvas ref={canvasRef} width={280} height={110} className="w-full h-full bg-slate-50/60" />;
+}
+
 export function DNAStructurePreview() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -656,6 +782,8 @@ export function RespirationPreview() {
 
 export function GenericPreview({ previewType }: { previewType: string }) {
   switch (previewType) {
+    case "cell-structure":
+      return <CellStructurePreview />;
     case "dna-structure":
       return <DNAStructurePreview />;
     case "dna-replication":
