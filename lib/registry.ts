@@ -23,17 +23,42 @@ export interface VisualizationMetadata {
   primaryVariables: string[];
   difficulty: 'Foundational' | 'Intermediate' | 'Advanced';
   citation: string;
-  previewType: 'dna-replication' | 'osmosis' | 'action-potential' | 'protein-synthesis' | 'enzyme-kinetics' | 'mitosis' | 'photosynthesis' | 'cellular-respiration';
+  previewType: 'dna-structure' | 'dna-replication' | 'osmosis' | 'action-potential' | 'protein-synthesis' | 'enzyme-kinetics' | 'mitosis' | 'photosynthesis' | 'cellular-respiration';
   featuredOrder: number;
 }
 
 export const VISUALIZATION_REGISTRY: VisualizationMetadata[] = [
   {
+    id: 'dna-structure',
+    title: 'DNA Structure: Double Helix & Base Pairing',
+    shortTitle: 'DNA Structure',
+    category: 'Molecular Genetics',
+    categoryCode: 'GEN-01',
+    eyebrow: 'Molecular Genetics / Molecular Architecture',
+    tagline: 'Antiparallel double helix, complementary A–T (2 H-bonds) & G–C (3 H-bonds) pairing, and sugar-phosphate backbones.',
+    description: 'Explore the architectural principles of DNA. Inspect canonical Watson-Crick base pairs, observe hydrogen bonding geometries, follow antiparallel 5\'→3\' and 3\'→5\' sugar-phosphate backbones, unzip strands reversibly, and discover how molecular structure stores genetic information.',
+    scientificConcept: 'Complementary base pairing, hydrogen bonding thermodynamics, and antiparallel helical geometry.',
+    keyPrinciples: [
+      'Adenine pairs exclusively with Thymine (2 H-bonds); Guanine pairs with Cytosine (3 H-bonds)',
+      'The two polynucleotide strands run in opposite stereochemical directions (antiparallel: 5\'→3\' and 3\'→5\')',
+      'Sugar-phosphate backbones form the hydrophilic exterior; hydrophobic nitrogenous bases face inward',
+      'Unzipping disrupts hydrogen bonds while preserving the continuous covalent phosphodiester backbones'
+    ],
+    status: 'available',
+    route: '/visualizations/dna-structure',
+    rendererType: 'hybrid',
+    primaryVariables: ['Strand Separation (Unzip)', 'Base Pair Selection', 'Hydrogen Bonds', 'Strand Polarity'],
+    difficulty: 'Foundational',
+    citation: 'Watson, J. D. & Crick, F. H. C. Molecular Structure of Nucleic Acids. Nature 171, 737–738 (1953).',
+    previewType: 'dna-structure',
+    featuredOrder: 1
+  },
+  {
     id: 'dna-replication',
     title: 'DNA Replication & Replisome Coordination',
     shortTitle: 'DNA Replication',
     category: 'Molecular Genetics',
-    categoryCode: 'GEN-01',
+    categoryCode: 'GEN-02',
     eyebrow: 'Molecular Genetics / Replication Fork',
     tagline: '5\' → 3\' directional polymerase elongation, lagging strand Okazaki fragments, and multienzyme replisome mechanics.',
     description: 'Explore the semiconservative copying of genetic duplexes. Observe how DNA Helicase unwinds the double helix, primase provides 3\'-OH RNA primers, DNA Polymerase III executes rapid continuous and discontinuous synthesis, Pol I carries out nick translation, and DNA Ligase seals the phosphodiester backbone.',

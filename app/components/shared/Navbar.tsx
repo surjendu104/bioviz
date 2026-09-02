@@ -59,12 +59,6 @@ export default function Navbar({
             ⌨ Shortcuts
           </button>
         )}
-        <Link
-          href="/"
-          className="px-3 py-1 bg-foreground text-background hover:bg-gray-800 transition-colors text-[10px] uppercase tracking-wider font-semibold"
-        >
-          Visualizations Index
-        </Link>
       </div>
     </header>
   );

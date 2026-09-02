@@ -2,6 +2,110 @@
 
 import React, { useEffect, useRef } from "react";
 
+export function DNAStructurePreview() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let animId: number;
+    let t = 0;
+
+    const render = () => {
+      t += 0.025;
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      // Grid
+      ctx.strokeStyle = "rgba(226, 232, 240, 0.4)";
+      ctx.lineWidth = 0.5;
+      for (let x = 0; x < w; x += 20) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+      }
+
+      const centerY = h * 0.5;
+      const amplitude = 32;
+      const basePairs = 18;
+
+      // Draw Base Pair Rungs & Hydrogen Bond Points
+      for (let i = 0; i < basePairs; i++) {
+        const x = 15 + (i / (basePairs - 1)) * (w - 30);
+        const phase = i * 0.45 + t;
+        const sinVal = Math.sin(phase);
+        const cosVal = Math.cos(phase);
+
+        const yTop = centerY + sinVal * amplitude;
+        const yBot = centerY - sinVal * amplitude;
+
+        // Base pair connector rung
+        ctx.beginPath();
+        ctx.strokeStyle = cosVal > 0 ? "rgba(37, 99, 235, 0.7)" : "rgba(100, 116, 139, 0.4)";
+        ctx.lineWidth = 1.5;
+        ctx.moveTo(x, yTop);
+        ctx.lineTo(x, yBot);
+        ctx.stroke();
+
+        // Hydrogen bonding dots at midpoint
+        const midY = (yTop + yBot) * 0.5;
+        ctx.beginPath();
+        ctx.arc(x, midY, 1.5, 0, Math.PI * 2);
+        ctx.fillStyle = i % 2 === 0 ? "#059669" : "#2563eb";
+        ctx.fill();
+
+        // Backbone Strand Nodes (Top & Bottom)
+        ctx.beginPath();
+        ctx.arc(x, yTop, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = cosVal > 0 ? "#0f172a" : "#475569";
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(x, yBot, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = cosVal < 0 ? "#0f172a" : "#475569";
+        ctx.fill();
+      }
+
+      // Smooth Continuous Backbone Ribbons (Strand 1 & Strand 2)
+      ctx.beginPath();
+      ctx.strokeStyle = "#0f172a";
+      ctx.lineWidth = 2;
+      for (let i = 0; i < basePairs; i++) {
+        const x = 15 + (i / (basePairs - 1)) * (w - 30);
+        const phase = i * 0.45 + t;
+        const yTop = centerY + Math.sin(phase) * amplitude;
+        if (i === 0) ctx.moveTo(x, yTop);
+        else ctx.lineTo(x, yTop);
+      }
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.strokeStyle = "#2563eb";
+      ctx.lineWidth = 2;
+      for (let i = 0; i < basePairs; i++) {
+        const x = 15 + (i / (basePairs - 1)) * (w - 30);
+        const phase = i * 0.45 + t;
+        const yBot = centerY - Math.sin(phase) * amplitude;
+        if (i === 0) ctx.moveTo(x, yBot);
+        else ctx.lineTo(x, yBot);
+      }
+      ctx.stroke();
+
+      animId = requestAnimationFrame(render);
+    };
+
+    render();
+    return () => cancelAnimationFrame(animId);
+  }, []);
+
+  return <canvas ref={canvasRef} width={280} height={110} className="w-full h-full bg-slate-50/60" />;
+}
+
 export function DNAPreview() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -552,6 +656,8 @@ export function RespirationPreview() {
 
 export function GenericPreview({ previewType }: { previewType: string }) {
   switch (previewType) {
+    case "dna-structure":
+      return <DNAStructurePreview />;
     case "dna-replication":
       return <DNAPreview />;
     case "osmosis":

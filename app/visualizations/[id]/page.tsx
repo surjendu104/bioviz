@@ -1,6 +1,7 @@
 import React from "react";
 import { notFound } from "next/navigation";
 import { VISUALIZATION_REGISTRY, getVisualizationById } from "@/lib/registry";
+import DNAStructureView from "@/app/components/dna-structure/DNAStructureView";
 import DNAReplication from "@/app/components/dna/DNAReplication";
 import OsmosisView from "@/app/components/osmosis/OsmosisView";
 import ActionPotentialView from "@/app/components/action-potential/ActionPotentialView";
@@ -39,6 +40,9 @@ export default async function DynamicVisualizationPage({ params }: PageProps) {
   }
 
   // Route directly to custom interactive views for available models
+  if (id === "dna-structure") {
+    return <DNAStructureView />;
+  }
   if (id === "dna-replication") {
     return <DNAReplication />;
   }
