@@ -16,11 +16,12 @@ interface FilterBarProps {
 
 const CATEGORIES: (VisualizationCategory | "All")[] = [
   "All",
+  "Physiology",
+  "Cell Biology",
   "Molecular Genetics",
   "Cellular Biophysics",
   "Neurophysiology",
   "Biochemistry",
-  "Cell Biology",
 ];
 
 export default function FilterBar({

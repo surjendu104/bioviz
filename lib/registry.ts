@@ -4,7 +4,8 @@ export type VisualizationCategory =
   | 'Cellular Biophysics'
   | 'Neurophysiology'
   | 'Biochemistry'
-  | 'Cell Biology';
+  | 'Cell Biology'
+  | 'Physiology';
 
 export interface VisualizationMetadata {
   id: string;
@@ -23,11 +24,36 @@ export interface VisualizationMetadata {
   primaryVariables: string[];
   difficulty: 'Foundational' | 'Intermediate' | 'Advanced';
   citation: string;
-  previewType: 'cell-structure' | 'dna-structure' | 'dna-replication' | 'osmosis' | 'action-potential' | 'protein-synthesis' | 'enzyme-kinetics' | 'mitosis' | 'photosynthesis' | 'cellular-respiration';
+  previewType: 'blood-circulation' | 'cell-structure' | 'dna-structure' | 'dna-replication' | 'osmosis' | 'action-potential' | 'protein-synthesis' | 'enzyme-kinetics' | 'mitosis' | 'photosynthesis' | 'cellular-respiration';
   featuredOrder: number;
 }
 
 export const VISUALIZATION_REGISTRY: VisualizationMetadata[] = [
+  {
+    id: 'blood-circulation',
+    title: 'Blood Circulation & Cardiovascular Circuits',
+    shortTitle: 'Blood Circulation',
+    category: 'Physiology',
+    categoryCode: 'PHY-01',
+    eyebrow: 'Physiology / Cardiovascular System',
+    tagline: 'Dual pulmonary and systemic circuits through the four chambers, four one-way valves, and great vessels of the human heart.',
+    description: 'Explore the continuous dual-loop cardiovascular circulation through an anatomically recognizable human heart. Trace systemic venous return, pulmonary gas exchange in the lungs, left ventricular high-pressure arterial pumping, and systemic oxygen delivery to the body.',
+    scientificConcept: 'Dual cardiovascular circuit separation (pulmonary vs systemic), unidirectional valve mechanics, and oxygenation transitions.',
+    keyPrinciples: [
+      'Right heart receives deoxygenated blood and pumps it through the pulmonary circuit to the lungs',
+      'Left heart receives oxygenated blood from the lungs and pumps it through the high-pressure systemic circuit to the body',
+      'Atrioventricular (Tricuspid, Mitral) and Semilunar (Pulmonary, Aortic) valves enforce strict unidirectional flow',
+      'Continuous closed loop: Heart → Pulmonary Circuit → Heart → Systemic Circuit → Body → Heart'
+    ],
+    status: 'available',
+    route: '/visualizations/blood-circulation',
+    rendererType: 'hybrid',
+    primaryVariables: ['Circulation Mode (Full / Pulmonary / Systemic)', 'Cardiac Sequence Step', 'Blood Oxygenation (sO2)', 'Flow Vectors'],
+    difficulty: 'Foundational',
+    citation: 'Silverthorn, D. U. Human Physiology: An Integrated Approach (8th ed.), Ch. 14.',
+    previewType: 'blood-circulation',
+    featuredOrder: 1
+  },
   {
     id: 'cell-structure',
     title: 'Cell Structure: Eukaryotic Architecture',

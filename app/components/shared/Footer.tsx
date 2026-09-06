@@ -18,6 +18,9 @@ export default function Footer() {
         </div>
 
         <div className="flex flex-wrap items-center gap-6 text-[11px]">
+          <Link href="/visualizations/blood-circulation" className="hover:text-foreground transition-colors">
+            Blood Circulation
+          </Link>
           <Link href="/visualizations/cell-structure" className="hover:text-foreground transition-colors">
             Cell Structure
           </Link>

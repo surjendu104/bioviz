@@ -2,6 +2,145 @@
 
 import React, { useEffect, useRef } from "react";
 
+export function BloodCirculationPreview() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let animId: number;
+    let t = 0;
+
+    const render = () => {
+      t += 0.03;
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      // Grid
+      ctx.strokeStyle = "rgba(226, 232, 240, 0.4)";
+      ctx.lineWidth = 0.5;
+      for (let x = 0; x < w; x += 20) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+      }
+
+      const cx = w * 0.5;
+      const cy = h * 0.5;
+
+      // 1. Pulmonary Loop (Top to Lungs)
+      ctx.beginPath();
+      ctx.strokeStyle = "rgba(37, 99, 235, 0.5)";
+      ctx.lineWidth = 2.5;
+      ctx.ellipse(cx - 25, cy - 25, 40, 20, -0.2, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.strokeStyle = "rgba(220, 38, 38, 0.5)";
+      ctx.lineWidth = 2.5;
+      ctx.ellipse(cx + 25, cy - 25, 40, 20, 0.2, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Lung Badges
+      ctx.fillStyle = "rgba(224, 242, 254, 0.8)";
+      ctx.strokeStyle = "#0284c7";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(cx - 65, cy - 48, 30, 16, 4);
+      ctx.roundRect(cx + 35, cy - 48, 30, 16, 4);
+      ctx.fill();
+      ctx.stroke();
+
+      // 2. Systemic Loop (Bottom to Body)
+      ctx.beginPath();
+      ctx.strokeStyle = "rgba(220, 38, 38, 0.5)";
+      ctx.lineWidth = 2.5;
+      ctx.ellipse(cx + 25, cy + 25, 42, 22, -0.2, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.strokeStyle = "rgba(37, 99, 235, 0.5)";
+      ctx.lineWidth = 2.5;
+      ctx.ellipse(cx - 25, cy + 25, 42, 22, 0.2, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // 3. Central Anatomical Heart Silhouette
+      // Right Heart (Deoxygenated Blue - Viewer's Left)
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 18);
+      ctx.bezierCurveTo(cx - 25, cy - 24, cx - 36, cy - 6, cx - 32, cy + 12);
+      ctx.bezierCurveTo(cx - 28, cy + 26, cx - 12, cy + 30, cx, cy + 32);
+      ctx.closePath();
+      ctx.fillStyle = "#2563eb";
+      ctx.fill();
+      ctx.strokeStyle = "#1d4ed8";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Left Heart (Oxygenated Red - Viewer's Right)
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 18);
+      ctx.bezierCurveTo(cx + 25, cy - 24, cx + 38, cy - 6, cx + 35, cy + 12);
+      ctx.bezierCurveTo(cx + 30, cy + 26, cx + 14, cy + 32, cx, cy + 32);
+      ctx.closePath();
+      ctx.fillStyle = "#dc2626";
+      ctx.fill();
+      ctx.strokeStyle = "#b91c1c";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Septum divider line
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 18);
+      ctx.lineTo(cx, cy + 32);
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Aorta Arch (Top curved red pipe)
+      ctx.beginPath();
+      ctx.arc(cx + 4, cy - 22, 10, Math.PI, 0);
+      ctx.strokeStyle = "#dc2626";
+      ctx.lineWidth = 4;
+      ctx.stroke();
+
+      // Vena Cava (Blue pipe)
+      ctx.beginPath();
+      ctx.moveTo(cx - 28, cy - 30);
+      ctx.lineTo(cx - 28, cy - 10);
+      ctx.strokeStyle = "#2563eb";
+      ctx.lineWidth = 4;
+      ctx.stroke();
+
+      // Flowing Pulse Particles
+      const pulsePhase = (t % 3);
+      const dot1Y = cy - 40 + (pulsePhase / 3) * 60;
+      ctx.beginPath();
+      ctx.arc(cx - 28, dot1Y, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = "#93c5fd";
+      ctx.fill();
+
+      const dot2Y = cy - 20 + (pulsePhase / 3) * 60;
+      ctx.beginPath();
+      ctx.arc(cx + 28, dot2Y, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = "#fca5a5";
+      ctx.fill();
+
+      animId = requestAnimationFrame(render);
+    };
+
+    render();
+    return () => cancelAnimationFrame(animId);
+  }, []);
+
+  return <canvas ref={canvasRef} width={280} height={110} className="w-full h-full bg-slate-50/60" />;
+}
+
 export function CellStructurePreview() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -782,6 +921,8 @@ export function RespirationPreview() {
 
 export function GenericPreview({ previewType }: { previewType: string }) {
   switch (previewType) {
+    case "blood-circulation":
+      return <BloodCirculationPreview />;
     case "cell-structure":
       return <CellStructurePreview />;
     case "dna-structure":

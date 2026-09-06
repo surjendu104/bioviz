@@ -1,6 +1,7 @@
 import React from "react";
 import { notFound } from "next/navigation";
 import { VISUALIZATION_REGISTRY, getVisualizationById } from "@/lib/registry";
+import BloodCirculationView from "@/app/components/blood-circulation/BloodCirculationView";
 import CellStructureView from "@/app/components/cell-structure/CellStructureView";
 import DNAStructureView from "@/app/components/dna-structure/DNAStructureView";
 import DNAReplication from "@/app/components/dna/DNAReplication";
@@ -41,6 +42,9 @@ export default async function DynamicVisualizationPage({ params }: PageProps) {
   }
 
   // Route directly to custom interactive views for available models
+  if (id === "blood-circulation") {
+    return <BloodCirculationView />;
+  }
   if (id === "cell-structure") {
     return <CellStructureView />;
   }
