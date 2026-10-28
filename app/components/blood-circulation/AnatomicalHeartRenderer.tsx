@@ -1,12 +1,36 @@
 "use client";
 
-import React, { useId } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
+import { Tooltip } from "react-tooltip";
 import {
   AnatomicalEntity,
   CirculationMode,
   CIRCULATION_INSPECTABLES,
   CIRCULATION_STEPS,
 } from "@/lib/biology/bloodCirculationModel";
+import {
+  BODY_BED_PATH,
+  BODY_CAPILLARIES,
+  CHAMBERS,
+  ChamberDefinition,
+  HEAD_BRANCH_CAP,
+  HEART_OUTLINE_PATH,
+  LEFT_LUNG_BRONCHI,
+  LEFT_LUNG_FISSURE,
+  LEFT_LUNG_PATH,
+  LV_OUTFLOW_PATH,
+  RIGHT_LUNG_BRONCHI,
+  RIGHT_LUNG_FISSURES,
+  RIGHT_LUNG_PATH,
+  ROUTE_PIECES,
+  RV_OUTFLOW_PATH,
+  SEPTUM_PATH,
+  STEP_ANCHORS,
+  VALVES,
+  VESSELS,
+  VesselDefinition,
+  ValveDefinition,
+} from "./heartCirculationGeometry";
 
 interface AnatomicalHeartRendererProps {
   mode: CirculationMode;
@@ -14,10 +38,970 @@ interface AnatomicalHeartRendererProps {
   selectedEntity: AnatomicalEntity | null;
   onSelectEntity: (entity: AnatomicalEntity | null) => void;
   isPlaying: boolean;
+  flowSpeed: number;
   showLabels: boolean;
   showVectors: boolean;
   showOxygenation: boolean;
 }
+
+const TONE = {
+  venous: {
+    base: "#2563eb",
+    dark: "#1e3a8a",
+    light: "#bfdbfe",
+    text: "#1e3a8a",
+    chamberStroke: "#1e40af",
+  },
+  arterial: {
+    base: "#dc2626",
+    dark: "#7f1d1d",
+    light: "#fecaca",
+    text: "#7f1d1d",
+    chamberStroke: "#991b1b",
+  },
+} as const;
+
+const CHAMBER_SATURATION: Record<string, string> = {
+  "right-atrium": "sO₂ 75%",
+  "left-atrium": "sO₂ 98%",
+  "right-ventricle": "sO₂ 75%",
+  "left-ventricle": "sO₂ 98%",
+};
+
+/* ─────────────────────────────────────────────────────────────
+   Small shared interactive wrapper
+   ───────────────────────────────────────────────────────────── */
+
+interface NodeGroupProps {
+  id: string;
+  active: boolean;
+  hovered: boolean;
+  dimmed: boolean;
+  tooltipId: string;
+  selectShadowId?: string;
+  hoverGlowId?: string;
+  onSelect: (id: string) => void;
+  onHover: (id: string | null) => void;
+  onFocus: (id: string) => void;
+  onBlur: () => void;
+  children: React.ReactNode;
+}
+
+function anatomyAriaLabel(entity: AnatomicalEntity | undefined): string {
+  if (!entity) return "Anatomical structure. Select to inspect.";
+  return `${entity.name}. ${entity.oxygenSaturation}. ${entity.function} Select to inspect.`;
+}
+
+function NodeGroup({
+  id,
+  active,
+  hovered,
+  dimmed,
+  tooltipId,
+  selectShadowId,
+  hoverGlowId,
+  onSelect,
+  onHover,
+  onFocus,
+  onBlur,
+  children,
+}: NodeGroupProps) {
+  const entity = CIRCULATION_INSPECTABLES[id];
+
+  const handleKeyDown = (event: React.KeyboardEvent<SVGGElement>) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      event.stopPropagation();
+      onSelect(id);
+    }
+  };
+
+  return (
+    <g
+      role="button"
+      tabIndex={0}
+      aria-label={anatomyAriaLabel(entity)}
+      aria-pressed={active}
+      data-tooltip-id={tooltipId}
+      data-tooltip-hidden={active}
+      data-tooltip-content={entity ? entity.name : id}
+      onClick={(event) => {
+        event.stopPropagation();
+        onSelect(id);
+      }}
+      onKeyDown={handleKeyDown}
+      onMouseEnter={() => onHover(id)}
+      onMouseLeave={() => onHover(null)}
+      onFocus={() => onFocus(id)}
+      onBlur={onBlur}
+      className="anatomy-node cursor-pointer transition-opacity duration-200"
+      style={{
+        opacity: dimmed ? 0.42 : 1,
+        filter: active
+          ? selectShadowId
+            ? `url(#${selectShadowId})`
+            : undefined
+          : hovered && hoverGlowId
+            ? `url(#${hoverGlowId})`
+            : undefined,
+      }}
+    >
+      {children}
+    </g>
+  );
+}
+
+function OutlineOnSelect({
+  d,
+  active,
+  strokeWidth = 1.5,
+}: {
+  d: string;
+  active: boolean;
+  strokeWidth?: number;
+}) {
+  if (!active) return null;
+  return (
+    <>
+      <path
+        d={d}
+        fill="none"
+        stroke="#ffffff"
+        strokeWidth={6}
+        strokeLinejoin="round"
+        opacity={0.9}
+        pointerEvents="none"
+      />
+      <path
+        d={d}
+        fill="none"
+        stroke="#0f172a"
+        strokeWidth={strokeWidth}
+        strokeDasharray="7 5"
+        strokeLinejoin="round"
+        opacity={0.85}
+        pointerEvents="none"
+      />
+    </>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Vessel
+   ───────────────────────────────────────────────────────────── */
+
+interface VesselNodeProps {
+  vessel: VesselDefinition;
+  active: boolean;
+  hovered: boolean;
+  dimmed: boolean;
+  tooltipId: string;
+  selectShadowId: string;
+  hoverGlowId: string;
+  onSelect: (id: string) => void;
+  onHover: (id: string | null) => void;
+  onFocus: (id: string) => void;
+  onBlur: () => void;
+  children?: React.ReactNode;
+}
+
+function VesselNode({
+  vessel,
+  active,
+  hovered,
+  dimmed,
+  tooltipId,
+  selectShadowId,
+  hoverGlowId,
+  onSelect,
+  onHover,
+  onFocus,
+  onBlur,
+  children,
+}: VesselNodeProps) {
+  const palette = TONE[vessel.tone];
+
+  return (
+    <NodeGroup
+      id={vessel.id}
+      active={active}
+      hovered={hovered}
+      dimmed={dimmed}
+      tooltipId={tooltipId}
+      selectShadowId={selectShadowId}
+      hoverGlowId={hoverGlowId}
+      onSelect={onSelect}
+      onHover={onHover}
+      onFocus={onFocus}
+      onBlur={onBlur}
+    >
+      {vessel.paths.map((path, index) => (
+        <g key={`${vessel.id}-${index}`}>
+          {active && (
+            <>
+              <path
+                d={path.d}
+                fill="none"
+                stroke="#ffffff"
+                strokeWidth={path.width + 12}
+                strokeOpacity={0.8}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <path
+                d={path.d}
+                fill="none"
+                stroke="#0f172a"
+                strokeWidth={path.width + 12}
+                strokeDasharray="7 5"
+                strokeOpacity={0.72}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </>
+          )}
+          {/* Vessel wall / soft outer casing */}
+          <path
+            d={path.d}
+            fill="none"
+            stroke="#0f172a"
+            strokeOpacity={0.14}
+            strokeWidth={path.width + 7}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {/* Lumen */}
+          <path
+            d={path.d}
+            fill="none"
+            stroke={palette.base}
+            strokeWidth={path.width}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {/* Inner light ridge gives the tube some depth */}
+          <path
+            d={path.d}
+            fill="none"
+            stroke={palette.light}
+            strokeOpacity={0.55}
+            strokeWidth={Math.max(2, path.width * 0.22)}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          {/* Direction of flow */}
+          <path
+            d={path.d}
+            fill="none"
+            stroke="#ffffff"
+            strokeOpacity={0.85}
+            strokeWidth={Math.max(1.6, path.width * 0.1)}
+            strokeLinecap="round"
+            className="circulation-flow-fine"
+          />
+          {/* Comfortable pointer / touch target */}
+          <path
+            d={path.d}
+            fill="none"
+            stroke="transparent"
+            strokeWidth={path.width + 16}
+            strokeLinecap="round"
+          />
+        </g>
+      ))}
+      {children}
+    </NodeGroup>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Chamber
+   ───────────────────────────────────────────────────────────── */
+
+function ChamberNode({
+  chamber,
+  active,
+  hovered,
+  dimmed,
+  showLabels,
+  showOxygenation,
+  tooltipId,
+  selectShadowId,
+  hoverGlowId,
+  onSelect,
+  onHover,
+  onFocus,
+  onBlur,
+}: {
+  chamber: ChamberDefinition;
+  active: boolean;
+  hovered: boolean;
+  dimmed: boolean;
+  showLabels: boolean;
+  showOxygenation: boolean;
+  tooltipId: string;
+  selectShadowId: string;
+  hoverGlowId: string;
+  onSelect: (id: string) => void;
+  onHover: (id: string | null) => void;
+  onFocus: (id: string) => void;
+  onBlur: () => void;
+}) {
+  const palette = TONE[chamber.tone];
+  const entity = CIRCULATION_INSPECTABLES[chamber.id];
+  const saturation = CHAMBER_SATURATION[chamber.id];
+
+  return (
+    <NodeGroup
+      id={chamber.id}
+      active={active}
+      hovered={hovered}
+      dimmed={dimmed}
+      tooltipId={tooltipId}
+      selectShadowId={selectShadowId}
+      hoverGlowId={hoverGlowId}
+      onSelect={onSelect}
+      onHover={onHover}
+      onFocus={onFocus}
+      onBlur={onBlur}
+    >
+      <path
+        d={chamber.d}
+        fill={chamber.tone === "venous" ? "url(#venous-chamber)" : "url(#arterial-chamber)"}
+        stroke={palette.chamberStroke}
+        strokeWidth={1.6}
+      />
+      <path d={chamber.d} fill="url(#chamber-sheen)" pointerEvents="none" />
+      <path
+        d={chamber.d}
+        fill="none"
+        stroke="#ffffff"
+        strokeOpacity={0.26}
+        strokeWidth={1}
+      />
+      <OutlineOnSelect d={chamber.d} active={active} />
+
+      {showLabels ? (
+        <g pointerEvents="none">
+          <text
+            x={chamber.label.x}
+            y={chamber.label.y}
+            textAnchor="middle"
+            className="font-display"
+            fontSize={12}
+            fontWeight={600}
+            fill="#ffffff"
+            paintOrder="stroke"
+            stroke={palette.dark}
+            strokeWidth={2.4}
+            strokeOpacity={0.55}
+            strokeLinejoin="round"
+          >
+            {entity?.name.toUpperCase() ?? chamber.id}
+          </text>
+          {showOxygenation && saturation && (
+            <text
+              x={chamber.saturation?.x ?? chamber.label.x}
+              y={chamber.saturation?.y ?? chamber.label.y + 16}
+              textAnchor="middle"
+              className="font-mono"
+              fontSize={8.5}
+              fontWeight={600}
+              fill="#ffffff"
+              fillOpacity={0.94}
+            >
+              {saturation}
+            </text>
+          )}
+        </g>
+      ) : (
+        <text
+          x={chamber.label.x}
+          y={chamber.label.y + 2}
+          textAnchor="middle"
+          className="font-display"
+          fontSize={16}
+          fontWeight={600}
+          fill="#ffffff"
+          fillOpacity={0.92}
+          pointerEvents="none"
+        >
+          {chamber.abbreviation}
+        </text>
+      )}
+    </NodeGroup>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Valve
+   ───────────────────────────────────────────────────────────── */
+
+function ValveNode({
+  valve,
+  active,
+  hovered,
+  dimmed,
+  showLabels,
+  tooltipId,
+  selectShadowId,
+  hoverGlowId,
+  onSelect,
+  onHover,
+  onFocus,
+  onBlur,
+}: {
+  valve: ValveDefinition;
+  active: boolean;
+  hovered: boolean;
+  dimmed: boolean;
+  showLabels: boolean;
+  tooltipId: string;
+  selectShadowId: string;
+  hoverGlowId: string;
+  onSelect: (id: string) => void;
+  onHover: (id: string | null) => void;
+  onFocus: (id: string) => void;
+  onBlur: () => void;
+}) {
+  const palette = TONE[valve.tone];
+  const isAtrioventricular =
+    valve.id === "tricuspid-valve" || valve.id === "mitral-valve";
+  const hitRadius = isAtrioventricular ? 30 : 22;
+
+  return (
+    <NodeGroup
+      id={valve.id}
+      active={active}
+      hovered={hovered}
+      dimmed={dimmed}
+      tooltipId={tooltipId}
+      selectShadowId={selectShadowId}
+      hoverGlowId={hoverGlowId}
+      onSelect={onSelect}
+      onHover={onHover}
+      onFocus={onFocus}
+      onBlur={onBlur}
+    >
+      <g transform={`translate(${valve.x} ${valve.y}) rotate(${valve.rotate})`}>
+        {/* Chordae tendineae + papillary muscles (AV valves only) */}
+        {isAtrioventricular && (
+          <g pointerEvents="none">
+            <path
+              d={`M ${-valve.rx * 0.48} ${valve.ry * 0.7} L ${-valve.rx * 0.36} ${valve.ry * 2.8} M ${valve.rx * 0.48} ${valve.ry * 0.7} L ${valve.rx * 0.36} ${valve.ry * 2.8}`}
+              stroke="#e2e8f0"
+              strokeWidth={0.8}
+              strokeOpacity={0.5}
+              fill="none"
+            />
+            <circle cx={-valve.rx * 0.36} cy={valve.ry * 3} r={2} fill="#8a4a42" opacity={0.7} />
+            <circle cx={valve.rx * 0.36} cy={valve.ry * 3} r={2} fill="#8a4a42" opacity={0.7} />
+          </g>
+        )}
+
+        <ellipse
+          cx={0}
+          cy={0}
+          rx={valve.rx}
+          ry={valve.ry}
+          fill="#f8fafc"
+          stroke="#475569"
+          strokeWidth={1.2}
+        />
+        <ellipse
+          cx={0}
+          cy={0}
+          rx={valve.rx * 0.55}
+          ry={valve.ry * 0.42}
+          fill="#ffffff"
+          stroke={palette.dark}
+          strokeWidth={1}
+        />
+        <line
+          x1={-valve.rx * 0.55}
+          y1={0}
+          x2={valve.rx * 0.55}
+          y2={0}
+          stroke={palette.dark}
+          strokeWidth={1.3}
+        />
+        <circle cx={0} cy={0} r={1.6} fill={palette.dark} />
+      </g>
+
+      {/* Generous invisible interaction target */}
+      <circle cx={valve.x} cy={valve.y} r={hitRadius} fill="transparent" />
+
+      {active && (
+        <>
+          <circle
+            cx={valve.x}
+            cy={valve.y}
+            r={hitRadius}
+            fill="none"
+            stroke="#ffffff"
+            strokeWidth={5}
+            opacity={0.85}
+            pointerEvents="none"
+          />
+          <circle
+            cx={valve.x}
+            cy={valve.y}
+            r={hitRadius}
+            fill="none"
+            stroke="#0f172a"
+            strokeWidth={1.4}
+            strokeDasharray="5 4"
+            opacity={0.8}
+            pointerEvents="none"
+          />
+        </>
+      )}
+
+      {showLabels && (
+        <g pointerEvents="none">
+          {valve.label.leader && (
+            <line
+              x1={valve.label.leader.x1}
+              y1={valve.label.leader.y1}
+              x2={valve.label.leader.x2}
+              y2={valve.label.leader.y2}
+              stroke={palette.dark}
+              strokeWidth={0.8}
+              strokeOpacity={0.7}
+            />
+          )}
+          <text
+            x={valve.label.x}
+            y={valve.label.y}
+            textAnchor={valve.label.anchor}
+            className="font-mono"
+            fontSize={8.5}
+            fontWeight={600}
+            letterSpacing={0.4}
+            fill={
+              valve.id === "tricuspid-valve" || valve.id === "mitral-valve"
+                ? "#ffffff"
+                : palette.text
+            }
+            paintOrder="stroke"
+            stroke={
+              valve.id === "tricuspid-valve" || valve.id === "mitral-valve"
+                ? palette.dark
+                : "#ffffff"
+            }
+            strokeWidth={
+              valve.id === "tricuspid-valve" || valve.id === "mitral-valve"
+                ? 2.6
+                : 2.2
+            }
+            strokeOpacity={
+              valve.id === "tricuspid-valve" || valve.id === "mitral-valve"
+                ? 0.55
+                : 0.9
+            }
+            strokeLinejoin="round"
+          >
+            {valve.id === "tricuspid-valve"
+              ? "TRICUSPID VALVE"
+              : valve.id === "mitral-valve"
+                ? "MITRAL VALVE"
+                : valve.id === "pulmonary-valve"
+                  ? "PULMONARY VALVE"
+                  : "AORTIC VALVE"}
+          </text>
+        </g>
+      )}
+    </NodeGroup>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Lungs
+   ───────────────────────────────────────────────────────────── */
+
+function LungsNode({
+  active,
+  hovered,
+  dimmed,
+  showLabels,
+  showOxygenation,
+  tooltipId,
+  selectShadowId,
+  hoverGlowId,
+  onSelect,
+  onHover,
+  onFocus,
+  onBlur,
+}: {
+  active: boolean;
+  hovered: boolean;
+  dimmed: boolean;
+  showLabels: boolean;
+  showOxygenation: boolean;
+  tooltipId: string;
+  selectShadowId: string;
+  hoverGlowId: string;
+  onSelect: (id: string) => void;
+  onHover: (id: string | null) => void;
+  onFocus: (id: string) => void;
+  onBlur: () => void;
+}) {
+  return (
+    <NodeGroup
+      id="lungs"
+      active={active}
+      hovered={hovered}
+      dimmed={dimmed}
+      tooltipId={tooltipId}
+      selectShadowId={selectShadowId}
+      hoverGlowId={hoverGlowId}
+      onSelect={onSelect}
+      onHover={onHover}
+      onFocus={onFocus}
+      onBlur={onBlur}
+    >
+      {/* Patient RIGHT lung — viewer left, three lobes */}
+      <path
+        d={RIGHT_LUNG_PATH}
+        fill="url(#lung-fill)"
+        stroke="#7f9bb2"
+        strokeWidth={2}
+        strokeLinejoin="round"
+      />
+      {/* Lobe shading: upper lobe light, middle lobe base tone, lower lobe deeper */}
+      <g clipPath="url(#right-lung-clip)" pointerEvents="none">
+        <path
+          d="M 200 310 C 250 290, 320 250, 360 220 L 380 440 L 180 440 Z"
+          fill="#cfe2f1"
+          opacity={0.9}
+        />
+        <path
+          d="M 180 80 L 380 80 L 380 204 L 350 204 C 320 196, 280 194, 240 200 L 180 200 Z"
+          fill="#fbfdff"
+          opacity={0.85}
+        />
+      </g>
+      <path
+        d={RIGHT_LUNG_PATH}
+        fill="url(#lung-volume)"
+        pointerEvents="none"
+      />
+      <path
+        d={RIGHT_LUNG_PATH}
+        fill="url(#alveoli-dots)"
+        pointerEvents="none"
+      />
+      <g clipPath="url(#right-lung-clip)" pointerEvents="none">
+        {/* Branching bronchial tree */}
+        <g stroke="#7f9bb2" strokeWidth={1.1} fill="none" opacity={0.7}>
+          {RIGHT_LUNG_BRONCHI.map((d, index) => (
+            <path key={`right-bronchus-${index}`} d={d} />
+          ))}
+        </g>
+        {/* Fine alveolar texture */}
+        <g stroke="#b8ccdb" strokeWidth={1} fill="none" opacity={0.75}>
+          <path d="M 214 300 C 226 282, 238 286, 246 306" />
+          <path d="M 246 306 C 258 288, 274 292, 280 312" />
+          <path d="M 232 338 C 246 320, 260 326, 268 344" />
+          <path d="M 292 250 C 304 236, 316 240, 322 256" />
+          <path d="M 212 220 C 226 206, 240 212, 246 226" />
+        </g>
+        <g fill="#b8ccdb" opacity={0.6}>
+          <circle cx={222} cy={310} r={1.6} />
+          <circle cx={254} cy={318} r={1.4} />
+          <circle cx={238} cy={342} r={1.6} />
+          <circle cx={298} cy={260} r={1.4} />
+          <circle cx={218} cy={230} r={1.4} />
+        </g>
+      </g>
+      <path
+        d={RIGHT_LUNG_FISSURES[0]}
+        fill="none"
+        stroke="#5f7f98"
+        strokeWidth={1.6}
+      />
+      <path
+        d={RIGHT_LUNG_FISSURES[1]}
+        fill="none"
+        stroke="#5f7f98"
+        strokeWidth={1.6}
+      />
+
+      {/* Patient LEFT lung — viewer right, two lobes + cardiac notch */}
+      <path
+        d={LEFT_LUNG_PATH}
+        fill="url(#lung-fill)"
+        stroke="#7f9bb2"
+        strokeWidth={2}
+        strokeLinejoin="round"
+      />
+      <g clipPath="url(#left-lung-clip)" pointerEvents="none">
+        <path
+          d="M 930 324 C 980 292, 1030 252, 1075 220 L 1120 440 L 900 440 Z"
+          fill="#cfe2f1"
+          opacity={0.9}
+        />
+        <path
+          d="M 900 80 L 1120 80 L 1120 220 L 1075 220 C 1030 252, 980 292, 930 324 L 900 324 Z"
+          fill="#fbfdff"
+          opacity={0.75}
+        />
+      </g>
+      <path
+        d={LEFT_LUNG_PATH}
+        fill="url(#lung-volume)"
+        pointerEvents="none"
+      />
+      <path
+        d={LEFT_LUNG_PATH}
+        fill="url(#alveoli-dots)"
+        pointerEvents="none"
+      />
+      <g clipPath="url(#left-lung-clip)" pointerEvents="none">
+        <g stroke="#7f9bb2" strokeWidth={1.1} fill="none" opacity={0.7}>
+          {LEFT_LUNG_BRONCHI.map((d, index) => (
+            <path key={`left-bronchus-${index}`} d={d} />
+          ))}
+        </g>
+        <g stroke="#b8ccdb" strokeWidth={1} fill="none" opacity={0.75}>
+          <path d="M 1002 300 C 1012 282, 1024 284, 1030 302" />
+          <path d="M 1024 302 C 1036 284, 1050 290, 1054 308" />
+          <path d="M 980 246 C 992 230, 1006 234, 1012 250" />
+          <path d="M 1050 230 C 1062 216, 1074 222, 1078 238" />
+        </g>
+        <g fill="#b8ccdb" opacity={0.6}>
+          <circle cx={1008} cy={308} r={1.6} />
+          <circle cx={1034} cy={314} r={1.4} />
+          <circle cx={986} cy={254} r={1.4} />
+          <circle cx={1058} cy={240} r={1.4} />
+        </g>
+      </g>
+      <path
+        d={LEFT_LUNG_FISSURE}
+        fill="none"
+        stroke="#5f7f98"
+        strokeWidth={1.6}
+      />
+
+      <OutlineOnSelect d={RIGHT_LUNG_PATH} active={active} />
+      <OutlineOnSelect d={LEFT_LUNG_PATH} active={active} />
+
+      {showLabels && (
+        <g pointerEvents="none">
+          <text
+            x={270}
+            y={352}
+            textAnchor="middle"
+            className="font-display"
+            fontSize={12.5}
+            fontWeight={600}
+            fill="#0f172a"
+          >
+            RIGHT LUNG
+          </text>
+          <text
+            x={270}
+            y={368}
+            textAnchor="middle"
+            className="font-mono"
+            fontSize={8.5}
+            fontWeight={500}
+            fill="#475569"
+          >
+            3 lobes · patient right
+          </text>
+          <text
+            x={1013}
+            y={352}
+            textAnchor="middle"
+            className="font-display"
+            fontSize={12.5}
+            fontWeight={600}
+            fill="#0f172a"
+          >
+            LEFT LUNG
+          </text>
+          <text
+            x={1013}
+            y={368}
+            textAnchor="middle"
+            className="font-mono"
+            fontSize={8.5}
+            fontWeight={500}
+            fill="#475569"
+          >
+            2 lobes · patient left
+          </text>
+
+          <text
+            x={270}
+            y={438}
+            textAnchor="middle"
+            className="font-mono"
+            fontSize={8.5}
+            fontWeight={600}
+            letterSpacing={0.6}
+            fill="#0369a1"
+          >
+            ALVEOLAR GAS EXCHANGE
+          </text>
+          <text
+            x={270}
+            y={454}
+            textAnchor="middle"
+            className="font-mono"
+            fontSize={8}
+            fontWeight={500}
+            fill="#64748b"
+          >
+            O₂ in · CO₂ out
+          </text>
+
+          <text
+            x={1013}
+            y={438}
+            textAnchor="middle"
+            className="font-mono"
+            fontSize={8.5}
+            fontWeight={600}
+            letterSpacing={0.6}
+            fill="#0369a1"
+          >
+            ALVEOLAR GAS EXCHANGE
+          </text>
+          {showOxygenation && (
+            <text
+              x={1013}
+              y={454}
+              textAnchor="middle"
+              className="font-mono"
+              fontSize={8}
+              fontWeight={600}
+              fill="#b91c1c"
+            >
+              sO₂ 75% → 98%
+            </text>
+          )}
+        </g>
+      )}
+    </NodeGroup>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Systemic capillary bed
+   ───────────────────────────────────────────────────────────── */
+
+function BodyBedNode({
+  active,
+  hovered,
+  dimmed,
+  showLabels,
+  showOxygenation,
+  tooltipId,
+  selectShadowId,
+  hoverGlowId,
+  onSelect,
+  onHover,
+  onFocus,
+  onBlur,
+}: {
+  active: boolean;
+  hovered: boolean;
+  dimmed: boolean;
+  showLabels: boolean;
+  showOxygenation: boolean;
+  tooltipId: string;
+  selectShadowId: string;
+  hoverGlowId: string;
+  onSelect: (id: string) => void;
+  onHover: (id: string | null) => void;
+  onFocus: (id: string) => void;
+  onBlur: () => void;
+}) {
+  return (
+    <NodeGroup
+      id="body-tissues"
+      active={active}
+      hovered={hovered}
+      dimmed={dimmed}
+      tooltipId={tooltipId}
+      selectShadowId={selectShadowId}
+      hoverGlowId={hoverGlowId}
+      onSelect={onSelect}
+      onHover={onHover}
+      onFocus={onFocus}
+      onBlur={onBlur}
+    >
+      <path
+        d={BODY_BED_PATH}
+        fill="url(#bed-fill)"
+        stroke="#a8b6c4"
+        strokeWidth={1.6}
+        strokeLinejoin="round"
+      />
+      <path d={BODY_BED_PATH} fill="url(#tissue-dots)" pointerEvents="none" />
+      <path d={BODY_BED_PATH} fill="url(#bed-wash)" pointerEvents="none" />
+      <g pointerEvents="none">
+        {BODY_CAPILLARIES.map((d, index) => (
+          <path
+            key={`bed-cap-${index}`}
+            d={d}
+            fill="none"
+            stroke="url(#bed-gradient)"
+            strokeWidth={1.8}
+            strokeOpacity={0.5}
+            strokeLinecap="round"
+          />
+        ))}
+      </g>
+      <OutlineOnSelect d={BODY_BED_PATH} active={active} />
+
+      {showLabels && (
+        <g pointerEvents="none">
+          <text
+            x={640}
+            y={798}
+            textAnchor="middle"
+            className="font-display"
+            fontSize={11.5}
+            fontWeight={600}
+            fill="#0f172a"
+          >
+            SYSTEMIC CAPILLARY BEDS
+          </text>
+          <text
+            x={640}
+            y={814}
+            textAnchor="middle"
+            className="font-mono"
+            fontSize={8.5}
+            fontWeight={500}
+            fill="#475569"
+          >
+            brain · skeletal muscle · viscera · skin
+          </text>
+          <text
+            x={640}
+            y={830}
+            textAnchor="middle"
+            className="font-mono"
+            fontSize={8}
+            fontWeight={500}
+            fill="#64748b"
+          >
+            O₂ &amp; nutrients out · CO₂ in
+            {showOxygenation ? " · sO₂ 98% → 75%" : ""}
+          </text>
+        </g>
+      )}
+    </NodeGroup>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Main renderer
+   ───────────────────────────────────────────────────────────── */
 
 export default function AnatomicalHeartRenderer({
   mode,
@@ -25,583 +1009,756 @@ export default function AnatomicalHeartRenderer({
   selectedEntity,
   onSelectEntity,
   isPlaying,
+  flowSpeed,
   showLabels,
   showVectors,
   showOxygenation,
 }: AnatomicalHeartRendererProps) {
-  const glowId = useId();
-  const activeId = selectedEntity?.id || (mode === "trace" ? CIRCULATION_STEPS[currentStepIndex]?.id : null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  const isSelected = (id: string) => activeId === id;
+  // On phones the plate is intentionally wider than the viewport so labels
+  // stay legible. Start with the heart centred rather than at the far left.
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+    let frame = 0;
 
-  const handleSelect = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+    const centre = () => {
+      if (element.scrollWidth > element.clientWidth) {
+        element.scrollLeft = (element.scrollWidth - element.clientWidth) / 2;
+        element.scrollTop = (element.scrollHeight - element.clientHeight) * 0.62;
+      }
+    };
+
+    centre();
+    frame = window.requestAnimationFrame(() => {
+      centre();
+      frame = window.requestAnimationFrame(centre);
+    });
+
+    const observer = new ResizeObserver(centre);
+    observer.observe(element);
+    window.addEventListener("load", centre);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener("load", centre);
+    };
+  }, []);
+
+  const rawId = useId();
+  const uid = useMemo(() => `bc-${rawId.replace(/[^a-zA-Z0-9_-]/g, "")}`, [rawId]);
+  const tooltipId = `${uid}-tip`;
+
+  const currentStep = CIRCULATION_STEPS[currentStepIndex];
+  const traceId = mode === "trace" ? currentStep?.id : null;
+  const activeId = selectedEntity?.id ?? traceId ?? null;
+  const routeActiveId = selectedEntity?.id ?? traceId ?? null;
+
+  const handleSelect = (id: string) => {
     const entity = CIRCULATION_INSPECTABLES[id];
-    if (entity) {
-      onSelectEntity(entity);
-    }
+    if (entity) onSelectEntity(entity);
   };
 
-  // Helper for opacity based on mode and selection
-  const getStructureOpacity = (circuitType: "pulmonary" | "systemic" | "both", id?: string) => {
-    if (activeId && id) {
-      if (isSelected(id)) return 1;
-      return 0.35;
-    }
-    if (mode === "pulmonary" && circuitType === "systemic") return 0.25;
-    if (mode === "systemic" && circuitType === "pulmonary") return 0.25;
-    return 1;
+  /** Dimming for a specific node, accounting for the active selection. */
+  const nodeDimmed = (id: string, region: "pulmonary" | "systemic" | "both") => {
+    if (activeId === id) return false;
+    if (activeId) return true;
+    return (
+      (mode === "pulmonary" && region === "systemic") ||
+      (mode === "systemic" && region === "pulmonary")
+    );
+  };
+
+  const nodeActive = (id: string) => activeId === id || focusedId === id;
+  const nodeHovered = (id: string) => hoveredId === id || focusedId === id;
+
+  const selectShadowId = `${uid}-select-shadow`;
+  const hoverGlowId = `${uid}-hover-glow`;
+
+  const flowDuration = `${(1.55 / flowSpeed).toFixed(2)}s`;
+
+  const commonNodeProps = {
+    tooltipId,
+    selectShadowId,
+    hoverGlowId,
+    onSelect: handleSelect,
+    onHover: setHoveredId,
+    onFocus: setFocusedId,
+    onBlur: () => setFocusedId(null),
   };
 
   return (
     <div
-      className="relative w-full h-full select-none bg-slate-50/50"
+      className="relative w-full h-full select-none bg-[#fbfdff]"
       onClick={() => onSelectEntity(null)}
     >
-      <svg
-        className="w-full h-full"
-        viewBox="0 0 1100 700"
-        preserveAspectRatio="xMidYMid meet"
-        role="img"
-        aria-label="Anatomical Human Heart and Cardiovascular Circulation Diagram"
+      <div
+        ref={scrollRef}
+        className="absolute inset-0 overflow-auto xl:overflow-hidden"
       >
-        <defs>
-          {/* Subtle Selection Glow Filter */}
-          <filter id={glowId} x="-30%" y="-30%" width="160%" height="160%">
-            <feGaussianBlur stdDeviation="4" result="blur" />
-            <feComposite in="SourceGraphic" in2="blur" operator="over" />
-          </filter>
-
-          {/* Directional Flow Arrow Markers */}
-          <marker
-            id="flow-arrow-blue"
-            viewBox="0 0 10 10"
-            refX="6"
-            refY="5"
-            markerWidth="6"
-            markerHeight="6"
-            orient="auto-start-reverse"
-          >
-            <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#2563eb" />
-          </marker>
-
-          <marker
-            id="flow-arrow-red"
-            viewBox="0 0 10 10"
-            refX="6"
-            refY="5"
-            markerWidth="6"
-            markerHeight="6"
-            orient="auto-start-reverse"
-          >
-            <path d="M 0 1.5 L 8 5 L 0 8.5 z" fill="#dc2626" />
-          </marker>
-
-          {/* Animated Flow Gradient Bars */}
-          <linearGradient id="pulmonary-gas-exchange" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#2563eb" />
-            <stop offset="50%" stopColor="#818cf8" />
-            <stop offset="100%" stopColor="#dc2626" />
-          </linearGradient>
-
-          <linearGradient id="systemic-gas-exchange" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#dc2626" />
-            <stop offset="50%" stopColor="#818cf8" />
-            <stop offset="100%" stopColor="#2563eb" />
-          </linearGradient>
-        </defs>
-
-        {/* ───────────────────────────────────────────────────────── */}
-        {/* 1. PATIENT ORIENTATION ANNOTATIONS */}
-        {/* ───────────────────────────────────────────────────────── */}
-        <g className="font-mono text-[9px] font-bold fill-muted uppercase tracking-widest pointer-events-none">
-          <text x="70" y="35">
-            ← PATIENT RIGHT (Viewer Left)
-          </text>
-          <text x="850" y="35">
-            PATIENT LEFT (Viewer Right) →
-          </text>
-        </g>
-
-        {/* ───────────────────────────────────────────────────────── */}
-        {/* 2. PULMONARY CIRCUIT: LUNGS & ALVEOLAR CAPILLARIES (TOP) */}
-        {/* ───────────────────────────────────────────────────────── */}
-        <g
-          id="lungs-circuit-group"
-          opacity={getStructureOpacity("pulmonary", "lungs")}
-          className="cursor-pointer transition-opacity duration-200"
-          onClick={(e) => handleSelect("lungs", e)}
+        <svg
+          viewBox="-40 0 1280 860"
+          preserveAspectRatio="xMidYMid meet"
+          role="group"
+          aria-labelledby={`${uid}-title ${uid}-desc`}
+          className={`block h-auto w-full min-w-[900px] xl:h-full xl:min-h-0 xl:w-full ${
+            isPlaying ? "force-motion" : "flow-paused"
+          }`}
+          style={
+            {
+              "--flow-duration": flowDuration,
+            } as React.CSSProperties
+          }
         >
-          {/* Right Lung (Viewer Left) */}
-          <g transform="translate(180, 110)">
-            <path
-              d="M -60 50 C -80 -10, -50 -60, 10 -60 C 60 -60, 70 0, 60 50 C 40 70, -40 70, -60 50 Z"
-              fill="rgba(224, 242, 254, 0.7)"
-              stroke="#0284c7"
-              strokeWidth="2.5"
-              filter={isSelected("lungs") ? `url(#${glowId})` : undefined}
-            />
-            {/* Alveolar Capillary Mesh */}
-            <path d="M -35 20 Q 0 -20, 35 20 M -20 -15 Q 10 10, 20 -30 M -10 35 Q 20 0, 40 40" stroke="url(#pulmonary-gas-exchange)" strokeWidth="3" strokeDasharray="3 2" fill="none" />
-            <text x="0" y="0" textAnchor="middle" className="font-display text-xs font-bold fill-sky-950 pointer-events-none">
-              Right Lung
-            </text>
-            <text x="0" y="15" textAnchor="middle" className="font-mono text-[8px] fill-sky-800 pointer-events-none">
-              Alveolar Gas Exchange
-            </text>
+          <title id={`${uid}-title`}>
+            Human heart and dual blood circulation — anterior schematic
+          </title>
+          <desc id={`${uid}-desc`}>
+            Anterior view of the heart with the pulmonary circuit above and the
+            systemic capillary beds below. Blue vessels carry oxygen-poor blood;
+            red vessels carry oxygen-rich blood. The pulmonary arteries are
+            therefore blue and the pulmonary veins red. Select any chamber,
+            valve, vessel, lung, or capillary bed to inspect it.
+          </desc>
+
+          <defs>
+            <radialGradient id={`${uid}-bg-glow`} cx="50%" cy="44%" r="62%">
+              <stop offset="0%" stopColor="#eef6ff" stopOpacity={0.85} />
+              <stop offset="100%" stopColor="#fbfdff" stopOpacity={0} />
+            </radialGradient>
+
+            <linearGradient id="venous-chamber" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#4585f0" />
+              <stop offset="100%" stopColor="#1d4ed8" />
+            </linearGradient>
+            <linearGradient id="arterial-chamber" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#ef4444" />
+              <stop offset="100%" stopColor="#b91c1c" />
+            </linearGradient>
+            <radialGradient id="myocardium-fill" cx="42%" cy="34%" r="78%">
+              <stop offset="0%" stopColor="#b06a5f" />
+              <stop offset="55%" stopColor="#8f4d45" />
+              <stop offset="100%" stopColor="#6a352f" />
+            </radialGradient>
+            <radialGradient id="chamber-sheen" cx="35%" cy="22%" r="78%">
+              <stop offset="0%" stopColor="#ffffff" stopOpacity={0.26} />
+              <stop offset="100%" stopColor="#ffffff" stopOpacity={0} />
+            </radialGradient>
+            <linearGradient id="lung-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#f4f9fd" />
+              <stop offset="100%" stopColor="#e3eef8" />
+            </linearGradient>
+            <radialGradient id="lung-volume" cx="50%" cy="42%" r="74%">
+              <stop offset="0%" stopColor="#ffffff" stopOpacity={0.7} />
+              <stop offset="72%" stopColor="#ffffff" stopOpacity={0} />
+              <stop offset="100%" stopColor="#8fb0c9" stopOpacity={0.16} />
+            </radialGradient>
+            <pattern
+              id="alveoli-dots"
+              width="16"
+              height="16"
+              patternUnits="userSpaceOnUse"
+            >
+              <circle cx="3" cy="3" r="1" fill="#8fa8bd" opacity={0.32} />
+              <circle cx="11" cy="10" r="0.8" fill="#8fa8bd" opacity={0.24} />
+            </pattern>
+            <pattern
+              id="tissue-dots"
+              width="18"
+              height="18"
+              patternUnits="userSpaceOnUse"
+            >
+              <circle cx="4" cy="4" r="1" fill="#94a3b8" opacity={0.28} />
+              <circle cx="13" cy="12" r="0.8" fill="#94a3b8" opacity={0.2} />
+            </pattern>
+            <linearGradient id="bed-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#f9fbfd" />
+              <stop offset="100%" stopColor="#edf2f7" />
+            </linearGradient>
+            <linearGradient
+              id="bed-gradient"
+              gradientUnits="userSpaceOnUse"
+              x1="950"
+              y1="0"
+              x2="330"
+              y2="0"
+            >
+              <stop offset="0%" stopColor="#dc2626" />
+              <stop offset="55%" stopColor="#818cf8" />
+              <stop offset="100%" stopColor="#2563eb" />
+            </linearGradient>
+            <linearGradient
+              id="bed-wash"
+              gradientUnits="userSpaceOnUse"
+              x1="950"
+              y1="0"
+              x2="330"
+              y2="0"
+            >
+              <stop offset="0%" stopColor="#dc2626" stopOpacity={0.06} />
+              <stop offset="100%" stopColor="#2563eb" stopOpacity={0.06} />
+            </linearGradient>
+
+            <filter id={selectShadowId} x="-30%" y="-30%" width="160%" height="160%">
+              <feDropShadow
+                dx="0"
+                dy="0"
+                stdDeviation="5"
+                floodColor="#0f172a"
+                floodOpacity="0.42"
+              />
+            </filter>
+            <filter id={hoverGlowId} x="-25%" y="-25%" width="150%" height="150%">
+              <feDropShadow
+                dx="0"
+                dy="0"
+                stdDeviation="3"
+                floodColor="#0f172a"
+                floodOpacity="0.2"
+              />
+            </filter>
+            <filter id={`${uid}-organ-shadow`} x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow
+                dx="0"
+                dy="3"
+                stdDeviation="4"
+                floodColor="#0f172a"
+                floodOpacity="0.08"
+              />
+            </filter>
+
+            <marker
+              id={`${uid}-arrow-venous`}
+              viewBox="0 0 10 10"
+              refX="7"
+              refY="5"
+              markerWidth="5"
+              markerHeight="5"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0 1.4 L 8.5 5 L 0 8.6 z" fill={TONE.venous.base} />
+            </marker>
+            <marker
+              id={`${uid}-arrow-arterial`}
+              viewBox="0 0 10 10"
+              refX="7"
+              refY="5"
+              markerWidth="5"
+              markerHeight="5"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0 1.4 L 8.5 5 L 0 8.6 z" fill={TONE.arterial.base} />
+            </marker>
+
+            <clipPath id="right-lung-clip">
+              <path d={RIGHT_LUNG_PATH} />
+            </clipPath>
+            <clipPath id="left-lung-clip">
+              <path d={LEFT_LUNG_PATH} />
+            </clipPath>
+          </defs>
+
+          {/* Soft focus wash */}
+          <rect
+            x={-40}
+            y={0}
+            width={1280}
+            height={860}
+            fill={`url(#${uid}-bg-glow)`}
+            pointerEvents="none"
+          />
+
+          {/* Plate caption */}
+          <text
+            x={600}
+            y={30}
+            textAnchor="middle"
+            className="font-mono"
+            fontSize={9}
+            fontWeight={600}
+            letterSpacing={2.2}
+            fill="#94a3b8"
+            pointerEvents="none"
+          >
+            ANTERIOR VIEW · SCHEMATIC
+          </text>
+
+          {/* 1 — LUNGS */}
+          <LungsNode
+            active={nodeActive("lungs")}
+            hovered={nodeHovered("lungs")}
+            dimmed={nodeDimmed("lungs", "pulmonary")}
+            showLabels={showLabels}
+            showOxygenation={showOxygenation}
+            {...commonNodeProps}
+          />
+
+          {/* 2 — CAPILLARY BED (behind its connecting vessels) */}
+          <BodyBedNode
+            active={nodeActive("body-tissues")}
+            hovered={nodeHovered("body-tissues")}
+            dimmed={nodeDimmed("body-tissues", "systemic")}
+            showLabels={showLabels}
+            showOxygenation={showOxygenation}
+            {...commonNodeProps}
+          />
+
+          {/* 3 — GREAT VESSELS (aorta → pulmonary veins → pulmonary arteries → vena cava) */}
+          <g filter={`url(#${uid}-organ-shadow)`}>
+            {VESSELS.map((vessel, vesselIndex) => {
+              const region =
+                vessel.circuit === "both" ? "both" : vessel.circuit;
+              return (
+                <VesselNode
+                  key={`${vessel.id}-${vesselIndex}`}
+                  vessel={vessel}
+                  active={nodeActive(vessel.id)}
+                  hovered={nodeHovered(vessel.id)}
+                  dimmed={nodeDimmed(vessel.id, region)}
+                  {...commonNodeProps}
+                >
+                  {showLabels && vessel.id === "vena-cava" && (
+                    <g pointerEvents="none">
+                      <text
+                        x={455}
+                        y={52}
+                        textAnchor="end"
+                        className="font-mono"
+                        fontSize={10}
+                        fontWeight={600}
+                        letterSpacing={0.5}
+                        fill="#1e3a8a"
+                      >
+                        SUPERIOR VENA CAVA
+                      </text>
+                      <text
+                        x={455}
+                        y={67}
+                        textAnchor="end"
+                        className="font-mono"
+                        fontSize={8}
+                        fontWeight={500}
+                        fill="#64748b"
+                      >
+                        from head &amp; upper limbs
+                      </text>
+                      <path
+                        d="M 458 72 L 468 86"
+                        stroke="#93c5fd"
+                        strokeWidth={1}
+                      />
+
+                      <text
+                        x={438}
+                        y={596}
+                        textAnchor="end"
+                        className="font-mono"
+                        fontSize={10}
+                        fontWeight={600}
+                        letterSpacing={0.5}
+                        fill="#1e3a8a"
+                      >
+                        INFERIOR VENA CAVA
+                      </text>
+                      <text
+                        x={438}
+                        y={611}
+                        textAnchor="end"
+                        className="font-mono"
+                        fontSize={8}
+                        fontWeight={500}
+                        fill="#64748b"
+                      >
+                        from trunk &amp; lower limbs
+                      </text>
+                      <path
+                        d="M 442 616 L 486 660"
+                        stroke="#93c5fd"
+                        strokeWidth={1}
+                      />
+                    </g>
+                  )}
+
+                  {showLabels && vessel.id === "pulmonary-arteries" && (
+                    <g pointerEvents="none">
+                      <text
+                        x={610}
+                        y={188}
+                        textAnchor="middle"
+                        className="font-mono"
+                        fontSize={10}
+                        fontWeight={600}
+                        letterSpacing={0.5}
+                        fill="#1e3a8a"
+                      >
+                        PULMONARY ARTERIES
+                      </text>
+                      <text
+                        x={610}
+                        y={202}
+                        textAnchor="middle"
+                        className="font-mono"
+                        fontSize={8}
+                        fontWeight={500}
+                        fill="#2563eb"
+                      >
+                        deoxygenated · to both lungs
+                      </text>
+                    </g>
+                  )}
+
+                  {showLabels && vessel.id === "aorta" && (
+                    <g pointerEvents="none">
+                      <text
+                        x={730}
+                        y={128}
+                        textAnchor="end"
+                        className="font-mono"
+                        fontSize={10}
+                        fontWeight={600}
+                        letterSpacing={0.5}
+                        fill="#7f1d1d"
+                      >
+                        AORTIC ARCH
+                      </text>
+
+                      <text
+                        x={780}
+                        y={68}
+                        textAnchor="middle"
+                        className="font-mono"
+                        fontSize={9}
+                        fontWeight={600}
+                        letterSpacing={0.5}
+                        fill="#7f1d1d"
+                      >
+                        HEAD &amp; UPPER LIMBS
+                      </text>
+                      <path
+                        d={HEAD_BRANCH_CAP}
+                        stroke="#fca5a5"
+                        strokeWidth={1}
+                        strokeDasharray="3 3"
+                      />
+
+                      <text
+                        x={905}
+                        y={470}
+                        textAnchor="start"
+                        className="font-mono"
+                        fontSize={10}
+                        fontWeight={600}
+                        letterSpacing={0.5}
+                        fill="#7f1d1d"
+                      >
+                        DESCENDING AORTA
+                      </text>
+                      <text
+                        x={905}
+                        y={486}
+                        textAnchor="start"
+                        className="font-mono"
+                        fontSize={8}
+                        fontWeight={500}
+                        fill="#64748b"
+                      >
+                        systemic · 120/80 mmHg
+                      </text>
+                    </g>
+                  )}
+                </VesselNode>
+              );
+            })}
           </g>
 
-          {/* Left Lung (Viewer Right) */}
-          <g transform="translate(920, 110)">
+          {/* 4 — HEART WALL */}
+          <g filter={`url(#${uid}-organ-shadow)`}>
             <path
-              d="M -60 50 C -70 0, -60 -60, -10 -60 C 50 -60, 80 -10, 60 50 C 40 70, -40 70, -60 50 Z"
-              fill="rgba(224, 242, 254, 0.7)"
-              stroke="#0284c7"
-              strokeWidth="2.5"
-              filter={isSelected("lungs") ? `url(#${glowId})` : undefined}
+              d={HEART_OUTLINE_PATH}
+              fill="url(#myocardium-fill)"
+              stroke="#5c2b27"
+              strokeWidth={2.4}
+              strokeLinejoin="round"
             />
-            <path d="M -35 20 Q 0 -20, 35 20 M -20 -30 Q -10 10, 20 -15 M -40 40 Q -20 0, 10 35" stroke="url(#pulmonary-gas-exchange)" strokeWidth="3" strokeDasharray="3 2" fill="none" />
-            <text x="0" y="0" textAnchor="middle" className="font-display text-xs font-bold fill-sky-950 pointer-events-none">
-              Left Lung
-            </text>
-            <text x="0" y="15" textAnchor="middle" className="font-mono text-[8px] fill-sky-800 pointer-events-none">
-              O₂ Absorption · CO₂ Exhalation
-            </text>
+            <path
+              d={HEART_OUTLINE_PATH}
+              fill="none"
+              stroke="#dca79c"
+              strokeOpacity={0.28}
+              strokeWidth={1.1}
+              strokeLinejoin="round"
+            />
+
+            {/* Myocardial fibre striations — visible only in the wall,
+                because the chamber cavities are painted over them. */}
+            <g
+              fill="none"
+              stroke="#5f2f2a"
+              strokeOpacity={0.36}
+              strokeWidth={1.4}
+              pointerEvents="none"
+            >
+              <path d="M 458 390 C 450 452, 468 516, 502 566" />
+              <path d="M 476 370 C 468 438, 486 508, 522 562" />
+              <path d="M 792 382 C 804 442, 798 522, 772 584" />
+              <path d="M 776 360 C 792 428, 788 512, 762 574" />
+              <path d="M 590 648 C 638 672, 690 672, 728 646" />
+              <path d="M 530 312 C 572 300, 626 298, 664 294" />
+            </g>
+
+            {/* Outflow tracts connect the ventricles to the semilunar valves */}
+            <path
+              d={RV_OUTFLOW_PATH}
+              fill="url(#venous-chamber)"
+              stroke="#5c2b27"
+              strokeWidth={1.2}
+            />
+            <path
+              d={LV_OUTFLOW_PATH}
+              fill="url(#arterial-chamber)"
+              stroke="#5c2b27"
+              strokeWidth={1.2}
+            />
+
+            {/* Muscular interventricular septum */}
+            <path
+              d={SEPTUM_PATH}
+              fill="none"
+              stroke="#5c2b27"
+              strokeWidth={24}
+              strokeLinecap="round"
+            />
+            <path
+              d={SEPTUM_PATH}
+              fill="none"
+              stroke="#8d4c45"
+              strokeWidth={17}
+              strokeLinecap="round"
+            />
           </g>
 
-          {showOxygenation && (
-            <text x="550" y="55" textAnchor="middle" className="font-mono text-[9px] font-bold fill-indigo-700 pointer-events-none">
-              Pulmonary Capillary Transition: sO₂ rises 75% → 98%
-            </text>
+          {/* 5 — CHAMBERS */}
+          <g>
+            {CHAMBERS.map((chamber) => (
+              <ChamberNode
+                key={chamber.id}
+                chamber={chamber}
+                active={nodeActive(chamber.id)}
+                hovered={nodeHovered(chamber.id)}
+                dimmed={nodeDimmed(chamber.id, "both")}
+                showLabels={showLabels}
+                showOxygenation={showOxygenation}
+                {...commonNodeProps}
+              />
+            ))}
+          </g>
+
+          {/* 6 — VALVES */}
+          <g>
+            {VALVES.map((valve) => (
+              <ValveNode
+                key={valve.id}
+                valve={valve}
+                active={nodeActive(valve.id)}
+                hovered={nodeHovered(valve.id)}
+                dimmed={nodeDimmed(valve.id, "both")}
+                showLabels={showLabels}
+                {...commonNodeProps}
+              />
+            ))}
+          </g>
+
+          {/* 7 — CONTINUOUS CIRCULATION ROUTE */}
+          {showVectors && (
+            <g pointerEvents="none" aria-hidden="true">
+              {ROUTE_PIECES.map((piece, index) => {
+                const palette = TONE[piece.tone];
+                const isActive = routeActiveId === piece.stepId;
+                let opacity = 1;
+                if (mode === "trace") {
+                  opacity = isActive ? 1 : 0.3;
+                } else if (
+                  (mode === "pulmonary" && piece.circuit === "systemic") ||
+                  (mode === "systemic" && piece.circuit === "pulmonary")
+                ) {
+                  opacity = 0.12;
+                }
+                if (selectedEntity && !isActive && activeId) {
+                  opacity = Math.min(opacity, 0.35);
+                }
+
+                return (
+                  <g
+                    key={`route-${index}`}
+                    opacity={opacity}
+                    filter={isActive ? `url(#${selectShadowId})` : undefined}
+                  >
+                      <path
+                        d={piece.d}
+                        fill="none"
+                        stroke={palette.dark}
+                        strokeWidth={5.6}
+                        strokeOpacity={0.22}
+                        strokeLinecap="round"
+                      />
+                      <path
+                        d={piece.d}
+                        fill="none"
+                        stroke={palette.base}
+                        strokeWidth={isActive ? 4 : 3.2}
+                        strokeLinecap="round"
+                        markerEnd={
+                          piece.arrow
+                            ? `url(#${uid}-arrow-${piece.tone})`
+                            : undefined
+                        }
+                      />
+                      <path
+                        d={piece.d}
+                        fill="none"
+                        stroke={palette.light}
+                        strokeOpacity={0.95}
+                        strokeWidth={1.9}
+                        strokeLinecap="round"
+                        className="circulation-flow"
+                      />
+                  </g>
+                );
+              })}
+            </g>
           )}
-        </g>
 
-        {/* ───────────────────────────────────────────────────────── */}
-        {/* 3. SYSTEMIC CIRCUIT: BODY & PERIPHERAL CAPILLARIES (BOTTOM) */}
-        {/* ───────────────────────────────────────────────────────── */}
-        <g
-          id="body-circuit-group"
-          opacity={getStructureOpacity("systemic", "body-tissues")}
-          className="cursor-pointer transition-opacity duration-200"
-          onClick={(e) => handleSelect("body-tissues", e)}
-        >
-          {/* Systemic Capillary Bed Container */}
-          <g transform="translate(550, 630)">
-            <rect
-              x="-260"
-              y="-35"
-              width="520"
-              height="70"
-              rx="10"
-              fill="rgba(241, 245, 249, 0.85)"
-              stroke="#64748b"
-              strokeWidth="2"
-              filter={isSelected("body-tissues") ? `url(#${glowId})` : undefined}
-            />
+          {/* 8 — OXYGENATION CALLOUTS */}
+          {showOxygenation && (
+            <g pointerEvents="none" aria-hidden="true">
+              <g transform="translate(620 286)">
+                <rect
+                  x={0}
+                  y={-9}
+                  width={52}
+                  height={16}
+                  rx={2}
+                  fill="#eff6ff"
+                  stroke="#bfdbfe"
+                  strokeWidth={1}
+                />
+                <text
+                  x={26}
+                  y={2.5}
+                  textAnchor="middle"
+                  className="font-mono"
+                  fontSize={8}
+                  fontWeight={600}
+                  fill="#1e40af"
+                >
+                  sO₂ ~75%
+                </text>
+              </g>
+              <g transform="translate(800 272)">
+                <rect
+                  x={0}
+                  y={-9}
+                  width={52}
+                  height={16}
+                  rx={2}
+                  fill="#fef2f2"
+                  stroke="#fecaca"
+                  strokeWidth={1}
+                />
+                <text
+                  x={26}
+                  y={2.5}
+                  textAnchor="middle"
+                  className="font-mono"
+                  fontSize={8}
+                  fontWeight={600}
+                  fill="#991b1b"
+                >
+                  sO₂ ~98%
+                </text>
+              </g>
+            </g>
+          )}
 
-            {/* Systemic Capillary Network lines */}
-            <path
-              d="M -220 0 Q -110 -20, 0 0 Q 110 20, 220 0 M -180 15 Q -60 20, 60 -15 Q 160 0, 200 15"
-              stroke="url(#systemic-gas-exchange)"
-              strokeWidth="3.5"
-              strokeDasharray="4 2"
-              fill="none"
-            />
-
-            <text x="0" y="-8" textAnchor="middle" className="font-display text-xs font-bold fill-slate-900 pointer-events-none">
-              Systemic Capillary Beds (Brain, Viscera, Skeletal Muscle & Organs)
-            </text>
-            <text x="0" y="12" textAnchor="middle" className="font-mono text-[9px] fill-slate-600 pointer-events-none">
-              O₂ & Nutrient Unloading · CO₂ Collection · sO₂ drops 98% → 75%
-            </text>
-          </g>
-        </g>
-
-        {/* ───────────────────────────────────────────────────────── */}
-        {/* 4. GREAT VESSELS CONNECTING LOOPS */}
-        {/* ───────────────────────────────────────────────────────── */}
-        <g id="great-vessels-layer">
-          {/* Superior Vena Cava (Top Blue Pipe to RA) */}
-          <g
-            id="svc-group"
-            opacity={getStructureOpacity("systemic", "vena-cava")}
-            className="cursor-pointer"
-            onClick={(e) => handleSelect("vena-cava", e)}
-          >
-            <path
-              d="M 370 120 L 370 260"
-              fill="none"
-              stroke="#2563eb"
-              strokeWidth="24"
-              strokeLinecap="round"
-              filter={isSelected("vena-cava") ? `url(#${glowId})` : undefined}
-            />
-            <path
-              d="M 370 120 L 370 260"
-              fill="none"
-              stroke="#93c5fd"
-              strokeWidth="3"
-              strokeDasharray={isPlaying ? "6 6" : "none"}
-              className={isPlaying ? "animate-pulse" : ""}
-            />
-            {showLabels && (
-              <text x="310" y="150" textAnchor="middle" className="font-mono text-[9px] font-bold fill-blue-900">
-                Superior Vena Cava
+          {/* 9 — TRACE STEP MARKER */}
+          {mode === "trace" && traceId && STEP_ANCHORS[traceId] && (
+            <g
+              transform={`translate(${STEP_ANCHORS[traceId].x} ${STEP_ANCHORS[traceId].y})`}
+              pointerEvents="none"
+              aria-hidden="true"
+            >
+              <circle
+                r={10.5}
+                fill="#0f172a"
+                stroke="#ffffff"
+                strokeWidth={2.2}
+              />
+              <text
+                y={3.2}
+                textAnchor="middle"
+                className="font-mono"
+                fontSize={9}
+                fontWeight={600}
+                fill="#ffffff"
+              >
+                {currentStep.step}
               </text>
-            )}
-          </g>
-
-          {/* Inferior Vena Cava (Bottom Blue Pipe to RA) */}
-          <g
-            id="ivc-group"
-            opacity={getStructureOpacity("systemic", "vena-cava")}
-            className="cursor-pointer"
-            onClick={(e) => handleSelect("vena-cava", e)}
-          >
-            <path
-              d="M 350 460 L 350 595"
-              fill="none"
-              stroke="#2563eb"
-              strokeWidth="22"
-              strokeLinecap="round"
-              filter={isSelected("vena-cava") ? `url(#${glowId})` : undefined}
-            />
-            <path
-              d="M 350 595 L 350 460"
-              fill="none"
-              stroke="#93c5fd"
-              strokeWidth="3"
-              strokeDasharray={isPlaying ? "6 6" : "none"}
-              markerEnd={showVectors ? "url(#flow-arrow-blue)" : undefined}
-            />
-            {showLabels && (
-              <text x="290" y="550" textAnchor="middle" className="font-mono text-[9px] font-bold fill-blue-900">
-                Inferior Vena Cava
-              </text>
-            )}
-          </g>
-
-          {/* Pulmonary Trunk & Arteries (Blue Outflow from RV to Lungs) */}
-          <g
-            id="pulmonary-arteries-group"
-            opacity={getStructureOpacity("pulmonary", "pulmonary-arteries")}
-            className="cursor-pointer"
-            onClick={(e) => handleSelect("pulmonary-arteries", e)}
-          >
-            {/* Trunk */}
-            <path
-              d="M 520 310 L 520 220 C 520 180, 480 160, 240 140"
-              fill="none"
-              stroke="#2563eb"
-              strokeWidth="18"
-              strokeLinecap="round"
-              filter={isSelected("pulmonary-arteries") ? `url(#${glowId})` : undefined}
-            />
-            {/* Right Pulmonary Artery Branch (Crosses to left lung on viewer right) */}
-            <path
-              d="M 520 200 C 560 170, 720 150, 860 140"
-              fill="none"
-              stroke="#2563eb"
-              strokeWidth="18"
-              strokeLinecap="round"
-            />
-            {showVectors && (
-              <>
-                <path d="M 520 260 L 260 142" stroke="#bfdbfe" strokeWidth="2.5" strokeDasharray="5 5" markerEnd="url(#flow-arrow-blue)" fill="none" />
-                <path d="M 540 200 L 840 142" stroke="#bfdbfe" strokeWidth="2.5" strokeDasharray="5 5" markerEnd="url(#flow-arrow-blue)" fill="none" />
-              </>
-            )}
-            {showLabels && (
-              <text x="470" y="150" textAnchor="middle" className="font-mono text-[9px] font-bold fill-blue-900">
-                Pulmonary Arteries (Deoxygenated)
-              </text>
-            )}
-          </g>
-
-          {/* Pulmonary Veins (Red Inflow from Lungs to LA) */}
-          <g
-            id="pulmonary-veins-group"
-            opacity={getStructureOpacity("pulmonary", "pulmonary-veins")}
-            className="cursor-pointer"
-            onClick={(e) => handleSelect("pulmonary-veins", e)}
-          >
-            {/* From Right Lung (Viewer Left) behind heart to LA */}
-            <path
-              d="M 240 160 C 400 170, 580 230, 640 270"
-              fill="none"
-              stroke="#dc2626"
-              strokeWidth="14"
-              strokeLinecap="round"
-              filter={isSelected("pulmonary-veins") ? `url(#${glowId})` : undefined}
-            />
-            {/* From Left Lung (Viewer Right) to LA */}
-            <path
-              d="M 860 160 C 780 180, 700 240, 670 280"
-              fill="none"
-              stroke="#dc2626"
-              strokeWidth="14"
-              strokeLinecap="round"
-            />
-            {showVectors && (
-              <path d="M 840 165 L 680 275" stroke="#fecaca" strokeWidth="2" strokeDasharray="4 4" markerEnd="url(#flow-arrow-red)" fill="none" />
-            )}
-            {showLabels && (
-              <text x="790" y="195" textAnchor="middle" className="font-mono text-[9px] font-bold fill-red-900">
-                Pulmonary Veins (Oxygenated)
-              </text>
-            )}
-          </g>
-
-          {/* Aorta & Aortic Arch (High-Pressure Red Outflow from LV to Body) */}
-          <g
-            id="aorta-group"
-            opacity={getStructureOpacity("systemic", "aorta")}
-            className="cursor-pointer"
-            onClick={(e) => handleSelect("aorta", e)}
-          >
-            {/* Ascending Aorta & Arch */}
-            <path
-              d="M 590 310 C 590 200, 600 120, 540 110 C 470 100, 440 160, 440 230 L 440 450 C 440 540, 520 580, 550 595"
-              fill="none"
-              stroke="#dc2626"
-              strokeWidth="24"
-              strokeLinecap="round"
-              filter={isSelected("aorta") ? `url(#${glowId})` : undefined}
-            />
-            {/* 3 Brachiocephalic Arterial Arch Branches (To head & arms) */}
-            <line x1="560" y1="110" x2="560" y2="60" stroke="#dc2626" strokeWidth="9" strokeLinecap="round" />
-            <line x1="535" y1="108" x2="525" y2="60" stroke="#dc2626" strokeWidth="9" strokeLinecap="round" />
-            <line x1="505" y1="114" x2="490" y2="60" stroke="#dc2626" strokeWidth="9" strokeLinecap="round" />
-
-            {showVectors && (
-              <path d="M 440 260 L 440 560" stroke="#fecaca" strokeWidth="2.5" strokeDasharray="5 5" markerEnd="url(#flow-arrow-red)" fill="none" />
-            )}
-            {showLabels && (
-              <text x="590" y="80" textAnchor="middle" className="font-mono text-[9px] font-bold fill-red-900">
-                Aorta Arch (120/80 mmHg)
-              </text>
-            )}
-          </g>
-        </g>
-
-        {/* ───────────────────────────────────────────────────────── */}
-        {/* 5. ANATOMICAL HEART MYOCARDIUM & 4 CHAMBERS */}
-        {/* ───────────────────────────────────────────────────────── */}
-        <g id="anatomical-heart-body" transform="translate(550, 360)">
-          {/* Thick Muscular Myocardium Silhouette (Cardiac Muscle Wall) */}
-          <path
-            d="M -180 -90 C -220 -20, -210 100, -110 160 C -30 210, 40 220, 90 210 C 180 190, 220 100, 210 -20 C 200 -100, 100 -130, 0 -100 C -100 -130, -150 -120, -180 -90 Z"
-            fill="#7f1d1d"
-            stroke="#450a0a"
-            strokeWidth="6"
-          />
-
-          {/* 5.1 RIGHT ATRIUM (Viewer Left, Blue) */}
-          <g
-            id="ra-group"
-            opacity={getStructureOpacity("both", "right-atrium")}
-            className="cursor-pointer"
-            onClick={(e) => handleSelect("right-atrium", e)}
-          >
-            <path
-              d="M -160 -80 C -190 -20, -180 30, -120 45 C -70 50, -40 20, -40 -40 C -40 -80, -100 -90, -160 -80 Z"
-              fill="rgba(37, 99, 235, 0.88)"
-              stroke="#1d4ed8"
-              strokeWidth="2.5"
-              filter={isSelected("right-atrium") ? `url(#${glowId})` : undefined}
-            />
-            {/* Pectinate muscle striations */}
-            <path d="M -160 -40 L -120 -30 M -160 0 L -110 0 M -150 25 L -100 20" stroke="#60a5fa" strokeWidth="1.5" opacity="0.6" />
-            <text x="-110" y="-15" textAnchor="middle" className="font-display text-sm font-bold fill-white pointer-events-none">
-              Right Atrium
-            </text>
-            <text x="-110" y="5" textAnchor="middle" className="font-mono text-[8px] fill-blue-100 font-bold pointer-events-none">
-              RA (75% sO₂)
-            </text>
-          </g>
-
-          {/* 5.2 RIGHT VENTRICLE (Viewer Left, Blue, Crescent) */}
-          <g
-            id="rv-group"
-            opacity={getStructureOpacity("both", "right-ventricle")}
-            className="cursor-pointer"
-            onClick={(e) => handleSelect("right-ventricle", e)}
-          >
-            <path
-              d="M -120 60 C -160 80, -140 140, -60 170 C -10 180, -10 110, -10 60 C -50 45, -90 45, -120 60 Z"
-              fill="rgba(37, 99, 235, 0.95)"
-              stroke="#1d4ed8"
-              strokeWidth="3"
-              filter={isSelected("right-ventricle") ? `url(#${glowId})` : undefined}
-            />
-            {/* Trabeculae Carneae ridges */}
-            <path d="M -110 100 Q -80 130, -50 150 M -90 80 Q -60 100, -30 110" stroke="#60a5fa" strokeWidth="2" opacity="0.5" fill="none" />
-            <text x="-75" y="110" textAnchor="middle" className="font-display text-sm font-bold fill-white pointer-events-none">
-              Right Ventricle
-            </text>
-            <text x="-75" y="128" textAnchor="middle" className="font-mono text-[8px] fill-blue-100 font-bold pointer-events-none">
-              RV (25/4 mmHg)
-            </text>
-          </g>
-
-          {/* 5.3 INTERVENTRICULAR SEPTUM (Central Muscular Partition) */}
-          <path
-            d="M -10 -50 L -10 185 L 15 190 L 15 -50 Z"
-            fill="#991b1b"
-            stroke="#450a0a"
-            strokeWidth="2"
-          />
-
-          {/* 5.4 LEFT ATRIUM (Viewer Right, Red) */}
-          <g
-            id="la-group"
-            opacity={getStructureOpacity("both", "left-atrium")}
-            className="cursor-pointer"
-            onClick={(e) => handleSelect("left-atrium", e)}
-          >
-            <path
-              d="M 40 -60 C 40 10, 70 45, 120 40 C 170 35, 180 -20, 150 -75 C 100 -90, 40 -90, 40 -60 Z"
-              fill="rgba(220, 38, 38, 0.88)"
-              stroke="#b91c1c"
-              strokeWidth="2.5"
-              filter={isSelected("left-atrium") ? `url(#${glowId})` : undefined}
-            />
-            <text x="110" y="-15" textAnchor="middle" className="font-display text-sm font-bold fill-white pointer-events-none">
-              Left Atrium
-            </text>
-            <text x="110" y="5" textAnchor="middle" className="font-mono text-[8px] fill-red-100 font-bold pointer-events-none">
-              LA (98% sO₂)
-            </text>
-          </g>
-
-          {/* 5.5 LEFT VENTRICLE (Viewer Right, Thick-Walled Muscular Apex, Red) */}
-          <g
-            id="lv-group"
-            opacity={getStructureOpacity("both", "left-ventricle")}
-            className="cursor-pointer"
-            onClick={(e) => handleSelect("left-ventricle", e)}
-          >
-            <path
-              d="M 20 60 C 20 120, 20 175, 70 190 C 130 180, 165 110, 140 55 C 100 45, 60 45, 20 60 Z"
-              fill="rgba(220, 38, 38, 0.95)"
-              stroke="#b91c1c"
-              strokeWidth="3"
-              filter={isSelected("left-ventricle") ? `url(#${glowId})` : undefined}
-            />
-            {/* Thick myocardium wall shading */}
-            <path d="M 140 55 C 175 110, 140 195, 70 200" stroke="#7f1d1d" strokeWidth="8" fill="none" opacity="0.7" />
-            <text x="80" y="110" textAnchor="middle" className="font-display text-sm font-bold fill-white pointer-events-none">
-              Left Ventricle
-            </text>
-            <text x="80" y="128" textAnchor="middle" className="font-mono text-[8px] fill-red-100 font-bold pointer-events-none">
-              LV (120/8 mmHg)
-            </text>
-          </g>
-
-          {/* ───────────────────────────────────────────────────────── */}
-          {/* 6. FOUR CARDIAC VALVES */}
-          {/* ───────────────────────────────────────────────────────── */}
-          {/* 6.1 Tricuspid Valve (RA -> RV) */}
-          <g
-            id="tricuspid-valve-group"
-            transform="translate(-80, 50)"
-            className="cursor-pointer"
-            onClick={(e) => handleSelect("tricuspid-valve", e)}
-          >
-            <ellipse cx="0" cy="0" rx="16" ry="6" fill="#f8fafc" stroke="#0284c7" strokeWidth="2.5" filter={isSelected("tricuspid-valve") ? `url(#${glowId})` : undefined} />
-            <line x1="-12" y1="0" x2="12" y2="0" stroke="#0f172a" strokeWidth="2" strokeDasharray="3 2" />
-            {/* Chordae Tendineae to Papillary Muscles */}
-            <path d="M -8 5 L -12 25 M 0 5 L -2 30 M 8 5 L 10 25" stroke="#f8fafc" strokeWidth="1.5" opacity="0.8" />
-            <circle cx="-12" cy="27" r="4" fill="#7f1d1d" />
-            <circle cx="10" cy="27" r="4" fill="#7f1d1d" />
-            {showLabels && (
-              <text x="-24" y="-10" textAnchor="end" className="font-mono text-[8px] font-bold fill-sky-200">
-                Tricuspid Valve
-              </text>
-            )}
-          </g>
-
-          {/* 6.2 Pulmonary Semilunar Valve (RV -> Pulmonary Trunk) */}
-          <g
-            id="pulmonary-valve-group"
-            transform="translate(-30, -35)"
-            className="cursor-pointer"
-            onClick={(e) => handleSelect("pulmonary-valve", e)}
-          >
-            <ellipse cx="0" cy="0" rx="14" ry="6" fill="#f8fafc" stroke="#0284c7" strokeWidth="2.5" filter={isSelected("pulmonary-valve") ? `url(#${glowId})` : undefined} />
-            <path d="M -10 0 C -4 4, 4 4, 10 0" stroke="#0f172a" strokeWidth="2" fill="none" />
-            {showLabels && (
-              <text x="-18" y="-10" textAnchor="end" className="font-mono text-[8px] font-bold fill-sky-200">
-                Pulmonary Valve
-              </text>
-            )}
-          </g>
-
-          {/* 6.3 Mitral (Bicuspid) Valve (LA -> LV) */}
-          <g
-            id="mitral-valve-group"
-            transform="translate(80, 48)"
-            className="cursor-pointer"
-            onClick={(e) => handleSelect("mitral-valve", e)}
-          >
-            <ellipse cx="0" cy="0" rx="16" ry="6" fill="#f8fafc" stroke="#dc2626" strokeWidth="2.5" filter={isSelected("mitral-valve") ? `url(#${glowId})` : undefined} />
-            <line x1="-12" y1="0" x2="12" y2="0" stroke="#450a0a" strokeWidth="2" strokeDasharray="4 2" />
-            {/* Chordae Tendineae to Papillary Muscles */}
-            <path d="M -8 5 L -10 26 M 8 5 L 12 26" stroke="#f8fafc" strokeWidth="1.8" opacity="0.8" />
-            <circle cx="-10" cy="28" r="5" fill="#7f1d1d" />
-            <circle cx="12" cy="28" r="5" fill="#7f1d1d" />
-            {showLabels && (
-              <text x="26" y="-10" textAnchor="start" className="font-mono text-[8px] font-bold fill-red-200">
-                Mitral (Bicuspid) Valve
-              </text>
-            )}
-          </g>
-
-          {/* 6.4 Aortic Semilunar Valve (LV -> Aorta) */}
-          <g
-            id="aortic-valve-group"
-            transform="translate(40, -35)"
-            className="cursor-pointer"
-            onClick={(e) => handleSelect("aortic-valve", e)}
-          >
-            <ellipse cx="0" cy="0" rx="14" ry="6" fill="#f8fafc" stroke="#dc2626" strokeWidth="2.5" filter={isSelected("aortic-valve") ? `url(#${glowId})` : undefined} />
-            <path d="M -10 0 C -4 4, 4 4, 10 0" stroke="#450a0a" strokeWidth="2" fill="none" />
-            {showLabels && (
-              <text x="20" y="-10" textAnchor="start" className="font-mono text-[8px] font-bold fill-red-200">
-                Aortic Valve
-              </text>
-            )}
-          </g>
-        </g>
-      </svg>
-
-      {/* Floating Legend / Quick Filter Pills */}
-      <div className="absolute bottom-4 left-4 z-10 hidden sm:flex items-center gap-4 bg-white/95 backdrop-blur-xs border border-border px-3.5 py-2 font-mono text-[10px] text-muted shadow-xs">
-        <button
-          type="button"
-          onClick={() => onSelectEntity(CIRCULATION_INSPECTABLES["right-ventricle"])}
-          className="flex items-center gap-1.5 hover:text-foreground cursor-pointer"
-        >
-          <span className="w-3 h-2 bg-blue-600 inline-block" />
-          <span>Oxygen-Poor (Venous / Pulmonary Outflow)</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => onSelectEntity(CIRCULATION_INSPECTABLES["left-ventricle"])}
-          className="flex items-center gap-1.5 hover:text-foreground cursor-pointer"
-        >
-          <span className="w-3 h-2 bg-red-600 inline-block" />
-          <span>Oxygen-Rich (Arterial / Systemic Outflow)</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => onSelectEntity(CIRCULATION_INSPECTABLES["mitral-valve"])}
-          className="flex items-center gap-1.5 hover:text-foreground cursor-pointer"
-        >
-          <span className="w-2 h-2 rounded-full bg-slate-100 border border-slate-700 inline-block" />
-          <span>One-Way Valves</span>
-        </button>
+            </g>
+          )}
+        </svg>
       </div>
+
+      {/* Desktop key */}
+      <div
+        role="note"
+        aria-label="Diagram key"
+        className="absolute bottom-3 left-3 z-10 hidden max-w-[310px] border border-border bg-white/95 p-2.5 font-mono text-[10px] shadow-xs backdrop-blur-xs xl:block"
+      >
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <span className="text-[9px] font-semibold uppercase tracking-widest text-muted">
+            Key
+          </span>
+          <span className="text-[8px] uppercase tracking-wider text-muted">
+            Schematic · not to scale
+          </span>
+        </div>
+
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2">
+            <span className="inline-block h-1.5 w-5 bg-red-600" />
+            <span className="text-foreground">
+              <span className="font-semibold">Oxygen-rich</span> · systemic
+              arteries &amp; pulmonary veins
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-block h-1.5 w-5 bg-blue-600" />
+            <span className="text-foreground">
+              <span className="font-semibold">Oxygen-poor</span> · systemic veins
+              &amp; pulmonary arteries
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-2 border-t border-border pt-1.5 text-[9px] leading-relaxed text-muted">
+          Anterior view · patient right is on the viewer&apos;s left. Colour
+          encodes oxygenation, not vessel type. Both lungs are perfused in
+          parallel.
+        </div>
+      </div>
+
+      <Tooltip
+        id={tooltipId}
+        className="bioviz-tooltip"
+        classNameArrow="hidden"
+        place="top"
+        delayShow={180}
+        opacity={1}
+      />
     </div>
   );
 }

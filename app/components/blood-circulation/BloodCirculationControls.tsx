@@ -22,6 +22,43 @@ interface BloodCirculationControlsProps {
   onReset: () => void;
 }
 
+const MODES: Array<{
+  id: CirculationMode;
+  label: string;
+  shortLabel: string;
+  activeClass: string;
+  idleClass: string;
+}> = [
+  {
+    id: "full",
+    label: "Dual Circulation (Full Loop)",
+    shortLabel: "Full Loop",
+    activeClass: "bg-foreground text-background border-foreground",
+    idleClass: "bg-white text-muted border-border hover:border-foreground hover:text-foreground",
+  },
+  {
+    id: "pulmonary",
+    label: "Pulmonary Loop (Heart ↔ Lungs)",
+    shortLabel: "Pulmonary",
+    activeClass: "bg-blue-600 text-white border-blue-600",
+    idleClass: "bg-white text-muted border-border hover:border-blue-500 hover:text-blue-700",
+  },
+  {
+    id: "systemic",
+    label: "Systemic Loop (Heart ↔ Body)",
+    shortLabel: "Systemic",
+    activeClass: "bg-red-600 text-white border-red-600",
+    idleClass: "bg-white text-muted border-border hover:border-red-500 hover:text-red-700",
+  },
+  {
+    id: "trace",
+    label: "Step-by-Step Trace (1 → 9)",
+    shortLabel: "Trace 1→9",
+    activeClass: "bg-slate-800 text-white border-slate-800",
+    idleClass: "bg-white text-muted border-border hover:border-slate-700 hover:text-slate-800",
+  },
+];
+
 export default function BloodCirculationControls({
   mode,
   setMode,
@@ -41,162 +78,169 @@ export default function BloodCirculationControls({
   onReset,
 }: BloodCirculationControlsProps) {
   const isTraceMode = mode === "trace";
+  const currentStep = CIRCULATION_STEPS[currentStepIndex];
 
   return (
-    <footer className="border-t border-border bg-white p-3 md:px-6 z-10 flex flex-col gap-3 font-mono text-xs select-none">
-      {/* 1. CIRCULATION CIRCUIT MODE PICKER */}
-      <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-gray-100">
-        <div className="flex items-center gap-1.5 overflow-x-auto text-[10px]">
-          <span className="text-muted uppercase tracking-wider font-semibold mr-1 shrink-0">
-            Circulation Circuit:
-          </span>
-          <button
-            type="button"
-            onClick={() => setMode("full")}
-            className={`px-3 py-1.5 border transition-all cursor-pointer font-semibold ${
-              mode === "full"
-                ? "bg-foreground text-background border-foreground shadow-xs"
-                : "bg-white text-muted border-border hover:border-foreground hover:text-foreground"
-            }`}
+    <footer className="flex shrink-0 select-none flex-col gap-2 border-t border-border bg-white p-2 font-mono text-xs sm:gap-2.5 sm:p-3 md:px-6">
+      {/* 1. CIRCUIT MODE + SPEED */}
+      <div className="flex items-center gap-2 border-b border-gray-100 pb-2">
+        <span className="hidden mr-1 shrink-0 font-semibold uppercase tracking-wider text-muted sm:inline">
+          Circuit
+        </span>
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto pb-0.5">
+          <div
+            className="flex shrink-0 items-center gap-1"
+            role="group"
+            aria-label="Circulation circuit"
           >
-            Dual Circulation (Full Loop)
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode("pulmonary")}
-            className={`px-3 py-1.5 border transition-all cursor-pointer font-semibold ${
-              mode === "pulmonary"
-                ? "bg-blue-600 text-white border-blue-600 shadow-xs"
-                : "bg-white text-muted border-border hover:border-blue-500 hover:text-blue-600"
-            }`}
-          >
-            Pulmonary Loop (Heart ↔ Lungs)
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode("systemic")}
-            className={`px-3 py-1.5 border transition-all cursor-pointer font-semibold ${
-              mode === "systemic"
-                ? "bg-red-600 text-white border-red-600 shadow-xs"
-                : "bg-white text-muted border-border hover:border-red-500 hover:text-red-600"
-            }`}
-          >
-            Systemic Loop (Heart ↔ Body)
-          </button>
-          <button
-            type="button"
-            onClick={() => setMode("trace")}
-            className={`px-3 py-1.5 border transition-all cursor-pointer font-semibold ${
-              mode === "trace"
-                ? "bg-purple-700 text-white border-purple-700 shadow-xs"
-                : "bg-white text-muted border-border hover:border-purple-600 hover:text-purple-700"
-            }`}
-          >
-            Step-by-Step Trace (1 → 9)
-          </button>
-        </div>
+            {MODES.map((entry) => (
+              <button
+                key={entry.id}
+                type="button"
+                onClick={() => setMode(entry.id)}
+                aria-pressed={mode === entry.id}
+                title={entry.label}
+                className={`shrink-0 cursor-pointer border px-2 py-1.5 font-semibold transition-colors sm:px-2.5 ${
+                  mode === entry.id ? entry.activeClass : entry.idleClass
+                }`}
+              >
+                <span className="hidden xl:inline">{entry.label}</span>
+                <span className="xl:hidden">{entry.shortLabel}</span>
+              </button>
+            ))}
+          </div>
 
-        {/* Speed Multiplier */}
-        <div className="flex items-center gap-1.5 text-[10px]">
-          <span className="text-muted uppercase tracking-wider font-semibold">Speed:</span>
-          {[0.5, 1, 2].map((s) => (
-            <button
-              key={s}
-              type="button"
-              onClick={() => setFlowSpeed(s)}
-              className={`px-2 py-0.5 border cursor-pointer font-semibold ${
-                flowSpeed === s
-                  ? "bg-foreground text-background border-foreground"
-                  : "bg-white text-muted border-border hover:border-foreground"
-              }`}
-            >
-              {s}x
-            </button>
-          ))}
+          <div
+            className="ml-auto flex shrink-0 items-center gap-1.5 text-[10px]"
+            role="group"
+            aria-label="Flow speed"
+          >
+            <span className="hidden font-semibold uppercase tracking-wider text-muted sm:inline">
+              Speed
+            </span>
+            {[0.5, 1, 2].map((speed) => (
+              <button
+                key={speed}
+                type="button"
+                onClick={() => setFlowSpeed(speed)}
+                aria-pressed={flowSpeed === speed}
+                aria-label={`Flow speed ${speed} times`}
+                className={`cursor-pointer border px-2 py-0.5 font-semibold transition-colors ${
+                  flowSpeed === speed
+                    ? "border-foreground bg-foreground text-background"
+                    : "border-border bg-white text-muted hover:border-foreground hover:text-foreground"
+                }`}
+              >
+                {speed}x
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* 2. PLAYBACK & TRACE STEP CONTROLS */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        {isTraceMode ? (
-          /* Step-by-Step Stepper Controls */
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onPrevStep}
-              disabled={currentStepIndex === 0}
-              className="px-3 py-1.5 border border-border hover:border-foreground disabled:opacity-40 disabled:hover:border-border text-foreground transition-colors cursor-pointer text-xs"
-            >
-              ← Previous Step
-            </button>
+      {/* 2. PLAYBACK / STEP + DISPLAY TOGGLES */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
+          {isTraceMode && (
+            <>
+              <button
+                type="button"
+                onClick={onPrevStep}
+                className="cursor-pointer border border-border px-2 py-1.5 text-[11px] text-foreground transition-colors hover:border-foreground sm:px-2.5"
+                title="Previous circulation step (←)"
+              >
+                ← Prev
+              </button>
+              <span
+                className="max-w-[150px] truncate border border-border bg-slate-50 px-2 py-1.5 text-[10px] font-semibold text-foreground sm:max-w-[260px]"
+                aria-live="polite"
+              >
+                {currentStep.step} / {CIRCULATION_STEPS.length} ·{" "}
+                {currentStep.structureName}
+              </span>
+              <button
+                type="button"
+                onClick={onNextStep}
+                className="cursor-pointer border border-foreground bg-foreground px-2 py-1.5 text-[11px] font-semibold text-background transition-colors hover:bg-slate-800 sm:px-2.5"
+                title="Next circulation step (→)"
+              >
+                Next →
+              </button>
+            </>
+          )}
 
-            <span className="text-[10px] text-purple-900 font-bold px-2 py-1 bg-purple-50 border border-purple-200">
-              Step {currentStepIndex + 1} / {CIRCULATION_STEPS.length}: {CIRCULATION_STEPS[currentStepIndex].structureName}
+          <button
+            type="button"
+            onClick={() => setIsPlaying((previous) => !previous)}
+            aria-pressed={isPlaying}
+            className={`flex cursor-pointer items-center gap-1.5 border px-2 py-1.5 text-[11px] font-semibold transition-colors sm:px-2.5 ${
+              isPlaying
+                ? "border-border bg-white text-foreground hover:border-foreground"
+                : "border-foreground bg-foreground text-background hover:bg-slate-800"
+            }`}
+            title={
+              isTraceMode
+                ? isPlaying
+                  ? "Pause automatic step advance (Space)"
+                  : "Resume automatic step advance (Space)"
+                : isPlaying
+                  ? "Pause flow animation (Space)"
+                  : "Resume flow animation (Space)"
+            }
+          >
+            <span aria-hidden="true">{isPlaying ? "❚❚" : "▶"}</span>
+            <span className="hidden sm:inline">
+              {isTraceMode
+                ? isPlaying
+                  ? "Pause trace"
+                  : "Auto-advance"
+                : isPlaying
+                  ? "Pause flow"
+                  : "Resume flow"}
             </span>
+            <span className="sm:hidden">{isPlaying ? "Pause" : "Play"}</span>
+          </button>
+        </div>
 
-            <button
-              type="button"
-              onClick={onNextStep}
-              disabled={currentStepIndex === CIRCULATION_STEPS.length - 1}
-              className="px-3 py-1.5 bg-purple-700 hover:bg-purple-800 disabled:opacity-40 text-white font-semibold transition-colors cursor-pointer text-xs"
-            >
-              Next Step →
-            </button>
-          </div>
-        ) : (
-          /* Continuous Blood Flow Animation Play/Pause */
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setIsPlaying((p) => !p)}
-              className={`px-3.5 py-1.5 font-semibold text-xs transition-colors flex items-center gap-1.5 cursor-pointer ${
-                isPlaying
-                  ? "bg-amber-600 text-white hover:bg-amber-700"
-                  : "bg-foreground text-background hover:bg-gray-800"
-              }`}
-            >
-              <span>{isPlaying ? "⏸ Pause Flow" : "▶ Resume Blood Flow"}</span>
-            </button>
-          </div>
-        )}
-
-        {/* Feature Display Toggles & Reset */}
-        <div className="flex items-center gap-1.5 text-[10px]">
+        <div className="hidden shrink-0 items-center gap-1.5 text-[10px] sm:flex">
           <button
             type="button"
-            onClick={() => setShowVectors((v) => !v)}
-            className={`px-2.5 py-1 border transition-colors cursor-pointer ${
+            onClick={() => setShowVectors((value) => !value)}
+            aria-pressed={showVectors}
+            className={`cursor-pointer border px-2.5 py-1 transition-colors ${
               showVectors
-                ? "border-blue-600 bg-blue-50 text-blue-800 font-semibold"
-                : "border-border text-muted"
+                ? "border-blue-600 bg-blue-50 font-semibold text-blue-800"
+                : "border-border bg-white text-muted hover:border-foreground hover:text-foreground"
             }`}
-            title="Toggle flow direction vectors along vessel tracks"
+            title="Show or hide the continuous circulation pathway"
           >
-            Flow Vectors
+            Flow Path
           </button>
 
           <button
             type="button"
-            onClick={() => setShowOxygenation((o) => !o)}
-            className={`px-2.5 py-1 border transition-colors cursor-pointer ${
+            onClick={() => setShowOxygenation((value) => !value)}
+            aria-pressed={showOxygenation}
+            className={`cursor-pointer border px-2.5 py-1 transition-colors ${
               showOxygenation
-                ? "border-indigo-600 bg-indigo-50 text-indigo-800 font-semibold"
-                : "border-border text-muted"
+                ? "border-red-600 bg-red-50 font-semibold text-red-800"
+                : "border-border bg-white text-muted hover:border-foreground hover:text-foreground"
             }`}
-            title="Toggle oxygen saturation callouts"
+            title="Show or hide oxygen-saturation values"
           >
-            Oxygen Saturation
+            O₂ Saturation
           </button>
 
           <button
             type="button"
-            onClick={() => setShowLabels((l) => !l)}
-            className={`px-2.5 py-1 border transition-colors cursor-pointer ${
+            onClick={() => setShowLabels((value) => !value)}
+            aria-pressed={showLabels}
+            className={`cursor-pointer border px-2.5 py-1 transition-colors ${
               showLabels
-                ? "border-foreground bg-gray-100 text-foreground font-semibold"
-                : "border-border text-muted"
+                ? "border-foreground bg-slate-100 font-semibold text-foreground"
+                : "border-border bg-white text-muted hover:border-foreground hover:text-foreground"
             }`}
-            title="Toggle anatomical structure labels"
+            title="Show or hide anatomical labels"
           >
             Labels
           </button>
@@ -204,8 +248,8 @@ export default function BloodCirculationControls({
           <button
             type="button"
             onClick={onReset}
-            className="px-2.5 py-1 border border-border hover:border-foreground text-muted hover:text-foreground uppercase cursor-pointer"
-            title="Reset to default full circulation view"
+            className="cursor-pointer border border-border px-2.5 py-1 uppercase tracking-wider text-muted transition-colors hover:border-foreground hover:text-foreground"
+            title="Reset to the default full-circulation view (R)"
           >
             Reset
           </button>

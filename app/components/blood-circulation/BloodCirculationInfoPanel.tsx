@@ -4,7 +4,6 @@ import React from "react";
 import {
   AnatomicalEntity,
   CirculationMode,
-  CIRCULATION_INSPECTABLES,
   CIRCULATION_STEPS,
 } from "@/lib/biology/bloodCirculationModel";
 
@@ -28,7 +27,7 @@ export default function BloodCirculationInfoPanel({
   return (
     <div className="flex flex-col h-full overflow-y-auto divide-y divide-border font-mono text-xs">
       {/* 1. CURRENT STEP / ACTIVE SELECTION SECTION */}
-      <section className="p-5 bg-white space-y-3">
+      <section className="p-5 bg-white space-y-3" aria-live="polite">
         <div className="flex items-center justify-between">
           <span className="text-[10px] text-muted uppercase tracking-widest font-semibold">
             {mode === "trace" ? "Circulation Trace Sequence" : "Cardiovascular Inspector"}
@@ -127,10 +126,16 @@ export default function BloodCirculationInfoPanel({
           </div>
         ) : (
           /* Current Sequence Step Overview */
-          <div className="p-3.5 bg-purple-50/60 border border-purple-200 space-y-2">
+          <div
+            className={`p-3.5 bg-slate-50/70 border border-border border-l-4 space-y-2 ${
+              currentStep.oxygenation === "oxygen-rich"
+                ? "border-l-red-600"
+                : "border-l-blue-600"
+            }`}
+          >
             <div className="flex items-center justify-between">
-              <span className="text-[9px] text-purple-700 font-bold uppercase tracking-wider">
-                Current Sequence ({currentStep.step} / {CIRCULATION_STEPS.length})
+              <span className="text-[9px] text-muted font-bold uppercase tracking-wider">
+                {mode === "trace" ? "Current Sequence" : "Trace Preview"} ({currentStep.step} / {CIRCULATION_STEPS.length})
               </span>
               <span
                 className={`text-[8px] px-1.5 py-0.5 rounded font-bold uppercase ${
@@ -142,20 +147,61 @@ export default function BloodCirculationInfoPanel({
                 {currentStep.oxygenation === "oxygen-rich" ? "Oxygen-Rich" : "Oxygen-Poor"}
               </span>
             </div>
-            <h3 className="font-display text-base font-semibold text-purple-950">
+            <h3 className="font-display text-base font-semibold text-foreground">
               {currentStep.title}: {currentStep.structureName}
             </h3>
-            <p className="text-[11px] text-purple-950 leading-relaxed">
+            <p className="text-[11px] text-slate-700 leading-relaxed">
               {currentStep.description}
             </p>
-            <div className="text-[10px] text-purple-800 font-bold border-t border-purple-200/80 pt-1.5">
+            <div className="text-[10px] text-foreground font-bold border-t border-border pt-1.5">
               Next: {currentStep.downstreamNext}
             </div>
           </div>
         )}
       </section>
 
-      {/* 2. QUANTITATIVE HEMODYNAMIC GAUGES */}
+      {/* 2. STEP-BY-STEP CIRCULATION PATHWAY LIST (primary navigation) */}
+      <section className="p-5 bg-white space-y-2.5 flex-grow">
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-[10px] text-muted uppercase tracking-widest font-semibold">
+            Circulation Sequence <span className="text-muted/70">(9)</span>
+          </div>
+          <span className="text-[8px] uppercase tracking-wider text-muted">
+            {mode === "trace" ? "Active" : "Select"}
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 gap-1">
+          {CIRCULATION_STEPS.map((st, idx) => {
+            const isCurrent = mode === "trace" && currentStepIndex === idx;
+            return (
+              <button
+                key={st.id}
+                type="button"
+                aria-current={isCurrent ? "step" : undefined}
+                onClick={() => {
+                  onSelectStep(idx);
+                }}
+                className={`w-full text-left p-2 border transition-all flex items-center justify-between gap-2 cursor-pointer ${
+                  isCurrent
+                    ? "bg-slate-100 border-foreground font-semibold text-foreground"
+                    : "bg-white border-border hover:border-foreground text-foreground"
+                }`}
+              >
+                <div className="flex items-center gap-2 truncate">
+                  <span className={`w-2 h-2 rounded-full ${st.oxygenation === "oxygen-rich" ? "bg-red-600" : "bg-blue-600"}`} />
+                  <span className="text-[11px] truncate">{st.step}. {st.structureName}</span>
+                </div>
+                <span className="text-[9px] text-muted uppercase shrink-0">
+                  {st.circuit}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* 3. QUANTITATIVE HEMODYNAMIC GAUGES (secondary reference) */}
       <section className="p-5 bg-gray-50/40 space-y-2.5">
         <div className="flex items-center justify-between">
           <span className="text-[10px] text-muted uppercase tracking-widest font-semibold">
@@ -183,42 +229,6 @@ export default function BloodCirculationInfoPanel({
             <div className="text-[9px] uppercase tracking-wider text-muted mb-0.5">Systemic BP</div>
             <div className="text-base font-bold font-display text-red-600">120/80 mmHg</div>
           </div>
-        </div>
-      </section>
-
-      {/* 3. STEP-BY-STEP CIRCULATION PATHWAY LIST */}
-      <section className="p-5 bg-white space-y-2.5 flex-grow">
-        <div className="text-[10px] text-muted uppercase tracking-widest font-semibold">
-          Circulation Sequence (9 Key Milestones)
-        </div>
-
-        <div className="grid grid-cols-1 gap-1">
-          {CIRCULATION_STEPS.map((st, idx) => {
-            const isCurrent = currentStepIndex === idx;
-            return (
-              <button
-                key={st.id}
-                type="button"
-                onClick={() => {
-                  onSelectStep(idx);
-                  onSelectEntity(CIRCULATION_INSPECTABLES[st.id] || null);
-                }}
-                className={`w-full text-left p-2 border transition-all flex items-center justify-between gap-2 cursor-pointer ${
-                  isCurrent
-                    ? "bg-purple-50 border-purple-500 font-bold text-purple-950"
-                    : "bg-white border-border hover:border-foreground text-foreground"
-                }`}
-              >
-                <div className="flex items-center gap-2 truncate">
-                  <span className={`w-2 h-2 rounded-full ${st.oxygenation === "oxygen-rich" ? "bg-red-600" : "bg-blue-600"}`} />
-                  <span className="text-[11px] truncate">{st.step}. {st.structureName}</span>
-                </div>
-                <span className="text-[9px] text-muted uppercase shrink-0">
-                  {st.circuit}
-                </span>
-              </button>
-            );
-          })}
         </div>
       </section>
     </div>

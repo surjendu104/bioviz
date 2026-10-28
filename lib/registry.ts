@@ -48,7 +48,7 @@ export const VISUALIZATION_REGISTRY: VisualizationMetadata[] = [
     status: 'available',
     route: '/visualizations/blood-circulation',
     rendererType: 'hybrid',
-    primaryVariables: ['Circulation Mode (Full / Pulmonary / Systemic)', 'Cardiac Sequence Step', 'Blood Oxygenation (sO2)', 'Flow Vectors'],
+    primaryVariables: ['Circulation Mode (Full / Pulmonary / Systemic)', 'Cardiac Sequence Step', 'Blood Oxygenation (sO2)', 'Circulation Pathway'],
     difficulty: 'Foundational',
     citation: 'Silverthorn, D. U. Human Physiology: An Integrated Approach (8th ed.), Ch. 14.',
     previewType: 'blood-circulation',

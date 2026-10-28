@@ -69,6 +69,45 @@ a:focus-visible {
   display: none !important;
 }
 
+/* ─────────────────────────────────────────────────────────────
+   Blood circulation flow animation
+   The dash offset moves in the direction of each path, so the
+   animation encodes physiological flow direction rather than
+   acting as decoration.
+   ───────────────────────────────────────────────────────────── */
+@keyframes circulation-flow {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -40;
+  }
+}
+
+.circulation-flow,
+.circulation-flow-fine {
+  animation: circulation-flow var(--flow-duration, 1.55s) linear infinite;
+}
+
+.circulation-flow {
+  stroke-dasharray: 10 30;
+}
+
+.circulation-flow-fine {
+  stroke-dasharray: 5 35;
+}
+
+.flow-paused .circulation-flow,
+.flow-paused .circulation-flow-fine {
+  animation-play-state: paused;
+}
+
+/* SVG groups receive a dashed ring from the renderer; do not add a
+   bounding-box outline, which would look like a selection marquee. */
+.anatomy-node:focus {
+  outline: none;
+}
+
 /* Reduced motion preference */
 @media (prefers-reduced-motion: reduce) {
   * {
@@ -76,5 +115,20 @@ a:focus-visible {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+
+  .circulation-flow,
+  .circulation-flow-fine {
+    animation: none !important;
+  }
+
+  /* An explicit Play action overrides the OS preference; the default
+     state is paused and static, so reduced motion is respected. */
+  .force-motion .circulation-flow,
+  .force-motion .circulation-flow-fine {
+    animation-name: circulation-flow !important;
+    animation-duration: var(--flow-duration, 1.55s) !important;
+    animation-timing-function: linear !important;
+    animation-iteration-count: infinite !important;
   }
 }

@@ -236,7 +236,7 @@ export const CIRCULATION_INSPECTABLES: Record<string, AnatomicalEntity> = {
     patientSide: 'left',
     oxygenation: 'oxygen-rich',
     oxygenSaturation: '98% sO₂',
-    pressureTypical: 'Opens at ~80 mmHg, seals at ~120 mmHg diastolic peak',
+    pressureTypical: 'Opens when LV pressure exceeds aortic pressure (~80 mmHg); closes as LV pressure falls',
     function: 'Opens during left ventricular systole to eject stroke volume into the aorta; snaps shut during diastole to maintain systemic arterial diastolic pressure (~80 mmHg).',
     upstreamSource: 'Left Ventricle',
     downstreamDestination: 'Ascending Aorta',
