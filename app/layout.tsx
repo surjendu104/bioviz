@@ -14,8 +14,8 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "DNA Replication Visualization",
-  description: "Interactive biology visualization of DNA replication.",
+  title: "BioViz",
+  description: "Interactive visualization of famous biology concepts",
 };
 
 export default function RootLayout({
